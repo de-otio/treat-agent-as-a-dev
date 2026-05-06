@@ -3,29 +3,52 @@
 Agent-driven setup that gives each developer's AI coding agent its own
 GitHub App identity.
 
-> **Status:** scaffolding only. Runbook and scripts coming shortly.
+In short: an AI coding agent should commit, push, and open PRs as a
+distinct `[bot]` principal — not as you. That gives auditable
+attribution, prevents the human reviewer from accidentally
+self-approving the agent's PR, and contains the blast radius if a
+secret leaks. This repo automates the setup.
 
-## What this repo is
+## How a developer uses this repo
 
-A reference for setting up a per-developer, per-engagement GitHub App
-so that an AI coding agent's commits and pull requests are attributed
-to a distinct `[bot]` identity, not to the developer who runs it. The
-flow is designed to be driven by the agent itself, with a small number
-of unavoidable human-in-browser steps.
+Pin to a tag (see [Pinning](#pinning) — never `main`) and prompt your
+agent:
+
+> Follow the runbook at <https://github.com/de-otio/treat-agent-as-a-dev>
+> at tag `v0.1`. Set up a GitHub App for engagement `<engagement>`
+> using my GitHub user `<your-handle>`. Target repo `<owner>/<repo>`.
+
+The agent reads [RUNBOOK.md](RUNBOOK.md) and drives. You'll be asked
+to do three things in your browser (create the App, install it on the
+repo, approve the smoke-test PR); everything else is automated. Total
+wall time: about 10 minutes.
+
+## What's in this repo
+
+- [`RUNBOOK.md`](RUNBOOK.md) — the playbook the agent follows
+- [`scripts/manifest-flow.py`](scripts/manifest-flow.py) — drives the
+  GitHub App manifest flow (browser + local callback) and writes the
+  PEM directly to the OS secret store
+- [`templates/bin/`](templates/bin) — token-minting wrapper, env
+  loader, and the agent CLI launcher that get copied into the
+  engagement repo at setup
+- [`templates/git-hooks/pre-commit`](templates/git-hooks/pre-commit)
+  — refuses commits authored by the developer's human account
+
+## Pinning
+
+When pointing your agent at this repo, **pin to a tag or SHA**, not
+to `main`. Tags matching `v*` are immutable (enforced via repository
+ruleset and signed-tag requirement), so `v0.1` means the same thing
+forever. The setup scripts touch your keychain and create GitHub Apps
+under your account; you don't want them tracking a moving branch.
 
 ## What this repo isn't
 
 A community open-source project. It's published publicly so devs and
 agents can clone or fetch it by tag/SHA. External pull requests will
 be politely closed. Issues are disabled. If you find a security
-problem, see [SECURITY.md](SECURITY.md). If you want to use this for
-your own engagements, fork it.
-
-## Pinning
-
-When pointing your agent at this repo, **pin to a tag or SHA**, not
-to `main`. Tags matching `v*` are immutable (enforced via repository
-ruleset), so `v0.1` means the same thing forever.
+problem, see [SECURITY.md](SECURITY.md).
 
 ## License
 
