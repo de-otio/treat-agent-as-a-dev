@@ -1,0 +1,20 @@
+#!/bin/sh
+# .git/hooks/pre-commit
+# Refuses commits not authored by the bot identity. Catches the most
+# common failure mode where the agent silently falls back to global
+# ~/.gitconfig (or %USERPROFILE%\.gitconfig).
+#
+# Substitute these placeholders during setup (RUNBOOK Step 5):
+#   <engagement>    — engagement slug
+#   <dev>           — developer slug
+
+expected_suffix="+<engagement>-<dev>-bot[bot]@users.noreply.github.com"
+actual="$(git config user.email)"
+
+case "$actual" in
+  *"$expected_suffix") exit 0 ;;
+  *)
+    echo "refusing: commit author is $actual" >&2
+    echo "expected the bot identity. Launch via bin/agent or re-source the env script." >&2
+    exit 1 ;;
+esac

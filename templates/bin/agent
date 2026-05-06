@@ -1,0 +1,9 @@
+#!/bin/sh
+# usage: bin/agent claude     # Claude Code
+#        bin/agent codex      # OpenAI Codex CLI
+#        bin/agent aider      # Aider, etc.
+#
+# Sources the env wrapper (mints a fresh installation token, exports
+# the bot git identity), then execs the agent CLI of your choice.
+. "$(dirname -- "$0")/agent-env.sh"
+exec "$@"
