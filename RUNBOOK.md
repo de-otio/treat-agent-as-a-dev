@@ -36,7 +36,7 @@ operate at a pinned tag, never `main` (see [README.md → Pinning](README.md#pin
    developer's browser. Each is marked `🛑 HUMAN CHECKPOINT`. Do not
    proceed past one until the developer has confirmed.
 6. **Ask, don't guess.** If a required input is missing, ask. Do not
-   invent values for `<engagement>`, `<dev>`, `<owner>/<repo>`,
+   invent values for `<engagement>`, `<GitHub Username>`, `<owner>/<repo>`,
    `<gh-user>`, or `<bot-name>`.
 
 ## Inputs
@@ -51,12 +51,12 @@ developer isn't doing client work, treat it as a project label.
 | Variable          | Example            | Notes                                          |
 |-------------------|--------------------|------------------------------------------------|
 | `<engagement>`    | `acme`             | customer / project slug; lowercase, no spaces  |
-| `<dev>`           | `alice`            | developer slug; lowercase, no spaces           |
+| `<GitHub Username>` | `alice`          | developer's GitHub username; lowercase, no spaces |
 | `<owner>/<repo>`  | `acme-co/widgets`  | target repo on github.com                      |
 | `<gh-user>`       | `alice-jones`      | the developer's GitHub handle                  |
-| `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<dev>-bot` slug |
+| `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<GitHub Username>-bot` slug |
 
-The default bot name is `<engagement>-<dev>-bot`. If the developer
+The default bot name is `<engagement>-<GitHub Username>-bot`. If the developer
 wants a different name, capture it as `<bot-name>` and pass it via
 `--name` in Step 1. Either way, GitHub returns the canonical slug
 after creation as `APP_SLUG`; everything downstream uses that.
@@ -86,12 +86,12 @@ approval (Step 7). It must remain logged in throughout.
 ## Step 1 — Register the App via manifest flow 🛑
 
 Run [`scripts/manifest-flow.py`](scripts/manifest-flow.py). With the
-default name (`<engagement>-<dev>-bot`):
+default name (`<engagement>-<GitHub Username>-bot`):
 
 ```sh
 eval "$(python3 scripts/manifest-flow.py \
   --engagement <engagement> \
-  --dev <dev> \
+  --dev <GitHub Username> \
   --gh-user <gh-user>)"
 echo "$APP_ID $APP_SLUG $APP_INSTALL_URL"
 ```
@@ -293,7 +293,7 @@ PR_NUM="$(bin/agent gh pr list \
   --state open --json number --jq '.[0].number')"
 
 bin/agent gh pr view "$PR_NUM" --json author --jq .author.login
-# expected: <engagement>-<dev>-bot[bot]
+# expected: <engagement>-<GitHub Username>-bot[bot]
 ```
 
 **🛑 HUMAN CHECKPOINT 3.** Tell the developer to run, in **their**

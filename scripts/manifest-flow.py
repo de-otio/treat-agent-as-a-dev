@@ -13,7 +13,7 @@ stdout in shell-eval format. Logs progress to stderr.
 usage: python3 scripts/manifest-flow.py --gh-user <handle> \\
   ( --name <bot-name> | --engagement <slug> --dev <slug> )
 
-If --name is omitted, the App is named "<engagement>-<dev>-bot".
+If --name is omitted, the App is named "<engagement>-<GitHub Username>-bot".
 """
 import argparse, html, http.server, json, os, platform, secrets, socket
 import socketserver, subprocess, sys, threading, time, urllib.parse, webbrowser

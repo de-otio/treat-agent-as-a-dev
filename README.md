@@ -25,8 +25,9 @@ repo so work for different customers stays cleanly separated. If
 you're not doing client work, pick any short label that identifies
 the project.
 
-By default the bot is named `<engagement>-<dev>-bot`. To pick a
-different name, add: "name the bot `<bot-name>`."
+By default the bot is named `<engagement>-<GitHub Username>-bot`, where
+`<GitHub Username>` is your GitHub username. To pick a different name,
+add: "name the bot `<bot-name>`."
 
 The agent reads [RUNBOOK.md](RUNBOOK.md) and drives. You'll be asked
 to do three things in your browser (create the App, install it on the
