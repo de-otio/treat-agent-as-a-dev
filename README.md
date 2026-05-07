@@ -15,8 +15,18 @@ Pin to a tag (see [Pinning](#pinning) — never `main`) and prompt your
 agent:
 
 > Follow the runbook at <https://github.com/de-otio/treat-agent-as-a-dev>
-> at tag `v0.1`. Set up a GitHub App for engagement `<engagement>`
+> at tag `<tag>`. Set up a GitHub App for engagement `<engagement>`
 > using my GitHub user `<your-handle>`. Target repo `<owner>/<repo>`.
+
+**"Engagement"** here means the specific customer project or piece of
+client work the bot is for. It's used as a short slug (e.g. `acme`,
+`acme-q3`) to namespace this bot's name, keychain entry, and target
+repo so work for different customers stays cleanly separated. If
+you're not doing client work, pick any short label that identifies
+the project.
+
+By default the bot is named `<engagement>-<dev>-bot`. To pick a
+different name, add: "name the bot `<bot-name>`."
 
 The agent reads [RUNBOOK.md](RUNBOOK.md) and drives. You'll be asked
 to do three things in your browser (create the App, install it on the

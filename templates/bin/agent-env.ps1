@@ -1,14 +1,13 @@
 # usage: . .\bin\agent-env.ps1
 #
 # Substitute these placeholders during setup (RUNBOOK Step 5):
-#   <APP_ID>        — numeric App ID (Step 1 output)
-#   <INSTALL_ID>    — numeric Installation ID (Step 3 output)
-#   <engagement>    — engagement slug
-#   <dev>           — developer slug
+#   <APP_ID>     — numeric App ID (Step 1 output)
+#   <INSTALL_ID> — numeric Installation ID (Step 3 output)
+#   <APP_SLUG>   — bot slug as returned by GitHub (Step 1 output)
 
 $AppId       = "<APP_ID>"
 $InstallId   = "<INSTALL_ID>"
-$AppSlug     = "<engagement>-<dev>-bot"
+$AppSlug     = "<APP_SLUG>"
 $KeychainKey = "github-app-$AppSlug-pem"
 $Store       = "$env:USERPROFILE\.secrets"
 

@@ -10,8 +10,10 @@ and writes the PEM directly to the OS secret store.
 Prints non-secret outputs (APP_ID, APP_SLUG, APP_INSTALL_URL) on
 stdout in shell-eval format. Logs progress to stderr.
 
-usage: python3 scripts/manifest-flow.py \\
-  --engagement <slug> --dev <slug> --gh-user <handle>
+usage: python3 scripts/manifest-flow.py --gh-user <handle> \\
+  ( --name <bot-name> | --engagement <slug> --dev <slug> )
+
+If --name is omitted, the App is named "<engagement>-<dev>-bot".
 """
 import argparse, html, http.server, json, os, platform, secrets, socket
 import socketserver, subprocess, sys, threading, time, urllib.parse, webbrowser
@@ -83,19 +85,25 @@ def store_pem(keychain_key: str, pem: str) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--engagement", required=True)
-    ap.add_argument("--dev",        required=True)
     ap.add_argument("--gh-user",    required=True)
+    ap.add_argument("--name",       help="bot name (overrides --engagement/--dev)")
+    ap.add_argument("--engagement", help="engagement slug; required unless --name is given")
+    ap.add_argument("--dev",        help="developer slug; required unless --name is given")
     args = ap.parse_args()
 
-    slug         = f"{args.engagement}-{args.dev}-bot"
-    keychain_key = f"github-app-{slug}-pem"
-    port         = free_port()
-    state        = secrets.token_urlsafe(16)
-    redirect     = f"http://localhost:{port}/callback"
+    if args.name:
+        requested_name = args.name
+    elif args.engagement and args.dev:
+        requested_name = f"{args.engagement}-{args.dev}-bot"
+    else:
+        ap.error("provide --name, or both --engagement and --dev")
+
+    port     = free_port()
+    state    = secrets.token_urlsafe(16)
+    redirect = f"http://localhost:{port}/callback"
 
     manifest = {
-        "name":                slug,
+        "name":                requested_name,
         "url":                 "https://example.com",
         "redirect_url":        redirect,
         "public":              False,
@@ -157,6 +165,7 @@ def main() -> None:
     r.raise_for_status()
     app = r.json()
 
+    keychain_key = f"github-app-{app['slug']}-pem"
     pem = app["pem"]
     store_pem(keychain_key, pem)
     pem = None
