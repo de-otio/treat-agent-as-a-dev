@@ -36,8 +36,8 @@ operate at a pinned tag, never `main` (see [README.md → Pinning](README.md#pin
    developer's browser. Each is marked `🛑 HUMAN CHECKPOINT`. Do not
    proceed past one until the developer has confirmed.
 6. **Ask, don't guess.** If a required input is missing, ask. Do not
-   invent values for `<engagement>`, `<GitHub Username>`, `<owner>/<repo>`,
-   `<gh-user>`, or `<bot-name>`.
+   invent values for `<engagement>`, `<owner>/<repo>`, `<gh-user>`,
+   or `<bot-name>`.
 
 ## Inputs
 
@@ -51,15 +51,15 @@ developer isn't doing client work, treat it as a project label.
 | Variable          | Example            | Notes                                          |
 |-------------------|--------------------|------------------------------------------------|
 | `<engagement>`    | `acme`             | customer / project slug; lowercase, no spaces  |
-| `<GitHub Username>` | `alice`          | developer's GitHub username; lowercase, no spaces |
 | `<owner>/<repo>`  | `acme-co/widgets`  | target repo on github.com                      |
 | `<gh-user>`       | `alice-jones`      | the developer's GitHub handle                  |
-| `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<GitHub Username>-bot` slug |
+| `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<gh-user>-bot` slug |
 
-The default bot name is `<engagement>-<GitHub Username>-bot`. If the developer
-wants a different name, capture it as `<bot-name>` and pass it via
-`--name` in Step 1. Either way, GitHub returns the canonical slug
-after creation as `APP_SLUG`; everything downstream uses that.
+The default bot name is `<engagement>-<gh-user>-bot`. If the
+developer wants a different name, capture it as `<bot-name>` and
+pass it via `--name` in Step 1. Either way, GitHub returns the
+canonical slug after creation as `APP_SLUG`; everything downstream
+uses that.
 
 Detect host OS once and reuse:
 
@@ -86,12 +86,11 @@ approval (Step 7). It must remain logged in throughout.
 ## Step 1 — Register the App via manifest flow 🛑
 
 Run [`scripts/manifest-flow.py`](scripts/manifest-flow.py). With the
-default name (`<engagement>-<GitHub Username>-bot`):
+default name (`<engagement>-<gh-user>-bot`):
 
 ```sh
 eval "$(python3 scripts/manifest-flow.py \
   --engagement <engagement> \
-  --dev <GitHub Username> \
   --gh-user <gh-user>)"
 echo "$APP_ID $APP_SLUG $APP_INSTALL_URL"
 ```
@@ -188,42 +187,45 @@ echo "INSTALL_ID=$INSTALL_ID"
 If the developer installed on a different repo or scope, the poll
 times out. Ask them to confirm what they selected.
 
-## Step 4 — Configure branch protection
+## Step 4 — Recommend branch protection (advisory)
 
-Resolve the default branch — don't assume `main`:
+**The agent does not configure branch protection.** Repo settings on
+customer projects are usually owned by the customer's GitHub admin
+(an org owner, security team, or release manager), not by the
+individual developer the bot runs for. Even when the developer has
+admin rights, applying protection programmatically can collide with
+existing org policy or invalidate compliance posture set by the
+customer. So this step is purely advisory: the agent prints the
+recommended policy and tells the developer to apply it (or to ask
+the customer admin to apply it) before running the smoke test.
 
-```sh
-DEFAULT_BRANCH="$(gh api repos/<owner>/<repo> --jq .default_branch)"
-```
+Print this recommendation to the developer verbatim:
 
-Apply the policy via API:
+> ⚠️ **Action required.** The bot identity is most useful when the
+> default branch is protected so the bot can't push directly and the
+> human reviewer must approve. Before running Step 7, please apply
+> these rules to `<owner>/<repo>`'s default branch — or ask the
+> repo admin / customer-side admin to apply them:
+>
+> - Require pull request reviews (≥ 1 approving review)
+> - Dismiss stale reviews on new commits
+> - Require approval of the most recent push
+> - Disallow force-pushes
+> - Disallow branch deletion
+>
+> On free GitHub plans, private repos can't use legacy "Branch
+> protection rules" but **Repository rulesets** (Settings → Rules →
+> Rulesets) provide the same controls.
+>
+> If the developer or admin chooses not to apply protection, the
+> setup will still complete, but the bot can technically push
+> directly to the default branch and self-review is no longer
+> mechanically prevented — only the bot identity convention.
 
-```sh
-cat > /tmp/branch-protection.json <<'EOF'
-{
-  "required_pull_request_reviews": {
-    "required_approving_review_count": 1,
-    "dismiss_stale_reviews": true,
-    "require_last_push_approval": true
-  },
-  "enforce_admins": null,
-  "restrictions": null,
-  "required_status_checks": null,
-  "allow_force_pushes": false,
-  "allow_deletions": false
-}
-EOF
-
-gh api -X PUT \
-  "repos/<owner>/<repo>/branches/$DEFAULT_BRANCH/protection" \
-  --input /tmp/branch-protection.json
-
-rm /tmp/branch-protection.json
-```
-
-If `gh api` returns 403, the developer isn't a repo admin. Ask the
-customer-side admin to apply the rules manually before continuing —
-do not skip this step.
+Do **not** call `gh api -X PUT .../protection` or `POST .../rulesets`.
+Do **not** infer the developer's admin status. Do **not** wait for
+confirmation that the rules were applied — record the recommendation
+and continue.
 
 ## Step 5 — Scaffold local files in the engagement repo
 
@@ -293,7 +295,7 @@ PR_NUM="$(bin/agent gh pr list \
   --state open --json number --jq '.[0].number')"
 
 bin/agent gh pr view "$PR_NUM" --json author --jq .author.login
-# expected: <engagement>-<GitHub Username>-bot[bot]
+# expected: <APP_SLUG>[bot]
 ```
 
 **🛑 HUMAN CHECKPOINT 3.** Tell the developer to run, in **their**
@@ -348,9 +350,6 @@ step number; let the developer decide retry vs. manual.
 - **Developer's `gh` is logged in as the bot when human action is
   needed.** Have them open a fresh terminal with `GH_TOKEN` unset, or
   run `gh auth switch`.
-- **`gh api ... /protection` returns 403.** Developer is not a repo
-  admin. Either elevate or have the customer-side admin apply branch
-  protection manually before continuing.
 - **`scripts/manifest-flow.py` fails with `ModuleNotFoundError`.**
   Run `pip install pyjwt cryptography requests` (per Pre-flight) and
   retry.

@@ -25,14 +25,16 @@ repo so work for different customers stays cleanly separated. If
 you're not doing client work, pick any short label that identifies
 the project.
 
-By default the bot is named `<engagement>-<GitHub Username>-bot`, where
-`<GitHub Username>` is your GitHub username. To pick a different name,
-add: "name the bot `<bot-name>`."
+By default the bot is named `<engagement>-<your-handle>-bot`. To pick
+a different name, add: "name the bot `<bot-name>`."
 
 The agent reads [RUNBOOK.md](RUNBOOK.md) and drives. You'll be asked
 to do three things in your browser (create the App, install it on the
-repo, approve the smoke-test PR); everything else is automated. Total
-wall time: about 10 minutes.
+repo, approve the smoke-test PR); everything else is automated. The
+agent will also recommend that you (or your customer's repo admin)
+turn on branch protection on the default branch — by design it
+won't apply that itself, since repo settings on customer engagements
+typically belong to the customer. Total wall time: about 10 minutes.
 
 ## What's in this repo
 
