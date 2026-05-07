@@ -20,15 +20,44 @@ operate at a pinned tag, never `main` (see [README.md → Pinning](README.md#pin
 
 ## Operating rules (do not violate)
 
-1. **The PEM never touches disk in plaintext.**
-   `scripts/manifest-flow.py` captures the PEM in memory from the
-   conversion API response and writes it directly to the OS secret
-   store. Do not log, echo, paste, or redirect it to a file.
+1. **The PEM bytes never leave a sanctioned consumer.** The PEM is
+   captured in memory from the conversion API response by
+   `scripts/manifest-flow.py` and written directly to the OS secret
+   store. From that moment on, the only places its bytes may appear
+   are: (a) memory of `bin/app-token.py` / `scripts/list-installs.py`
+   while they mint a JWT, and (b) the OS secret store itself. The
+   following are prohibited regardless of intent (debugging, testing,
+   confirming format, etc.):
+   - Printing PEM to stdout / stderr / log / file.
+   - Piping PEM into `head`, `cat`, `grep`, `tail`, `wc -l`,
+     `xxd`, `od`, or anything that displays content.
+   - Calling `security find-generic-password ... -g` (prints
+     keychain attributes including the password).
+   - Echoing any **encoded form** of the PEM (ASCII hex, base64,
+     etc.) — encodings of secrets are still secrets.
+   - Pasting PEM bytes into a chat / web tool / external service.
+
+   Sanctioned inspections that do **not** expose bytes:
+   - **Presence:** `security find-generic-password -s "$KEY" >/dev/null && echo present`
+     (the `-w` form is fine when its output is **discarded**).
+   - **Length:** `security find-generic-password -s "$KEY" -w | wc -c`
+     (returns one integer; bytes pass through the pipe unread by you).
+   - **End-to-end smoke:** mint a token via `bin/app-token.py` and
+     check the response shape, not the PEM input.
+
+   If a debugger instinct kicks in to look at the PEM "just to
+   check the format," **stop**. The format is documented (PEM is
+   PEM) and the answer to any malformed-PEM bug is to fix the
+   storage/retrieval layer in `scripts/list-installs.py` /
+   `templates/bin/app-token.py`, never to inspect a specific
+   developer's PEM.
 2. **No secret in commits.** App ID, Installation ID, slug, and the
    bot's `users.noreply.github.com` email are not secrets and may be
    committed. The PEM, the webhook secret, and any installation token
    are secrets and must not be.
 3. **`GH_TOKEN` lives in environment only.** Never write it to disk.
+   Never echo it. The token shape (`ghs_…`) is itself a marker — do
+   not paste tokens into chat or logs.
 4. **Stop on failure.** Surface the exact error and which step
    failed. Let the developer choose retry vs. manual fallback. Do
    not silently retry or improvise around blocked operations.
@@ -80,8 +109,8 @@ python3 -c "import jwt, requests"           # pyjwt + requests installed
 ```
 
 The developer's existing `gh auth` is the **human** identity and is
-what will be used for branch protection (Step 4) and the smoke-test
-approval (Step 7). It must remain logged in throughout.
+what will be used for the smoke-test approval (Step 7). It must
+remain logged in throughout.
 
 ## Step 1 — Register the App via manifest flow 🛑
 
@@ -174,8 +203,13 @@ selects **Only select repositories**, picks `<owner>/<repo>`, clicks
 Poll for the installation. Cap at 3 minutes:
 
 ```sh
+OWNER="$(echo <owner>/<repo> | cut -d/ -f1)"
+
 for _ in $(seq 36); do
-  if INSTALL_ID="$(gh api /repos/<owner>/<repo>/installation --jq .id 2>/dev/null)"; then
+  if eval "$(python3 scripts/list-installs.py \
+              --slug "$APP_SLUG" \
+              --app-id "$APP_ID" \
+              --account "$OWNER" 2>/dev/null)"; then
     break
   fi
   sleep 5
@@ -184,7 +218,15 @@ done
 echo "INSTALL_ID=$INSTALL_ID"
 ```
 
-If the developer installed on a different repo or scope, the poll
+`scripts/list-installs.py` is an opaque consumer: it reads the PEM
+from the secret store, mints a short-lived App JWT in memory, calls
+`/app/installations`, and prints `INSTALL_ID=<n>` for `eval`. The
+agent never sees PEM bytes. (Do not substitute
+`gh api /repos/.../installation` here — that endpoint requires the
+App's JWT, so a user PAT returns 401.)
+
+If the developer installed on a different repo or under a different
+account (e.g. an org instead of their personal account), the poll
 times out. Ask them to confirm what they selected.
 
 ## Step 4 — Recommend branch protection (advisory)
@@ -261,6 +303,31 @@ grep -E '^(APP_ID|INSTALL_ID|APP_SLUG)=' bin/agent-env.sh
 
 ## Step 6 — Configure git in the engagement working tree
 
+The credential helper below feeds the bot's installation token to
+`git push`, but git only invokes credential helpers for **HTTPS**
+remotes — not SSH. Make sure `origin` is an HTTPS URL, switching it
+if needed:
+
+```sh
+case "$(git remote get-url origin)" in
+  https://github.com/*) ;;                 # already HTTPS, leave it
+  git@github.com:*)
+    new="$(git remote get-url origin \
+            | sed -E 's|^git@github\.com:|https://github.com/|')"
+    git remote set-url origin "$new"
+    ;;
+  *)
+    echo "unexpected remote URL; flag to developer" >&2
+    exit 1 ;;
+esac
+```
+
+If `origin` stays SSH, `git push` will use the developer's personal
+SSH key and the push will be attributed to the developer, not the
+bot — which silently defeats the whole bot identity setup.
+
+Then set the identity:
+
 ```sh
 git config user.name  "${APP_SLUG}[bot]"
 git config user.email "${APP_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
@@ -287,35 +354,65 @@ bin/agent sh -c '
 '
 ```
 
-Confirm the PR author is the bot:
+Confirm the PR author is the bot. Note the gh CLI uses `app/<slug>`
+as the author filter for App-authored PRs, **not** `<slug>[bot]`:
 
 ```sh
 PR_NUM="$(bin/agent gh pr list \
-  --author "${APP_SLUG}[bot]" \
+  --author "app/${APP_SLUG}" \
   --state open --json number --jq '.[0].number')"
 
 bin/agent gh pr view "$PR_NUM" --json author --jq .author.login
-# expected: <APP_SLUG>[bot]
+# expected: app/<APP_SLUG>
+```
+
+If `gh pr list` returns nothing on a brand-new private repo, see the
+search-index note below — the PR exists, search just hasn't indexed
+it. Fall back to the REST list:
+
+```sh
+PR_NUM="$(bin/agent gh api repos/<owner>/<repo>/pulls \
+            --jq '.[] | select(.head.ref=="agent-smoke-test") | .number')"
 ```
 
 **🛑 HUMAN CHECKPOINT 3.** Tell the developer to run, in **their**
 shell (not the bot's, with `GH_TOKEN` unset):
 
 ```sh
-GH_TOKEN= gh pr review <PR_NUM> --approve
-GH_TOKEN= gh pr merge  <PR_NUM> --squash --delete-branch
+GH_TOKEN= gh pr review <PR_NUM> --approve --repo <owner>/<repo>
+GH_TOKEN= gh pr merge  <PR_NUM> --squash --delete-branch --repo <owner>/<repo>
 ```
 
 ```powershell
 $env:GH_TOKEN = ""
-gh pr review <PR_NUM> --approve
-gh pr merge  <PR_NUM> --squash --delete-branch
+gh pr review <PR_NUM> --approve --repo <owner>/<repo>
+gh pr merge  <PR_NUM> --squash --delete-branch --repo <owner>/<repo>
 ```
+
+Or via browser: open `https://github.com/<owner>/<repo>/pull/<PR_NUM>`
+directly and click **Approve** + **Merge pull request**. The direct
+PR URL works even when the listing page doesn't (see below).
 
 Wait for the developer to confirm the merge succeeded. If they hit
 "you cannot approve your own pull request", the bot identity didn't
 take in Step 6 — re-check `git config user.email` in this working
-tree.
+tree, and re-check that `origin` is HTTPS.
+
+> ⚠️ **Heads-up on new private repos: search indexing lag.** GitHub
+> indexes a private repo's issues and PRs into its search backend
+> on first activity, with a delay that's usually minutes but can
+> stretch to hours. Until indexing catches up:
+>
+> - The repo's `/pulls` listing page can show "There aren't any
+>   open pull requests" *while the tab badge counts the PR* — the
+>   listing is search-driven, the badge isn't.
+> - `gh pr list` and `--author` filters return empty.
+> - The direct PR URL (`/<owner>/<repo>/pull/<n>`) works fine and
+>   so does `gh pr view <n>` and `gh api repos/.../pulls`.
+>
+> Tell the developer this up front so the empty listing isn't a
+> blocker for the smoke-test approval. Use the direct URL or `gh
+> api .../pulls` to find the PR.
 
 ## Step 8 — Hand off
 
@@ -341,7 +438,98 @@ any time the token expires.
 If anything didn't go to plan, list the failures with the matching
 step number; let the developer decide retry vs. manual.
 
+## Step 9 — Rotate the PEM (when needed)
+
+Rotate **whenever** the PEM may have been exposed: agent or human
+echoed it (in any encoding), it landed in a log / transcript / chat,
+the workstation was lost or shared, or it's just been a long time.
+Rotation is cheap; treat it as the default response to any doubt.
+
+```
+Rotation flow (3 minutes, one human checkpoint):
+
+1. The agent should NOT generate or fetch the new PEM itself —
+   GitHub's UI is the only path that produces one for a personal
+   App, and routing it via the agent risks re-exposing it. Tell
+   the developer to:
+
+     a. Open https://github.com/settings/apps/<APP_SLUG>
+        → "Private keys" → "Generate a private key".
+     b. GitHub downloads <APP_SLUG>.YYYY-MM-DD.private-key.pem to
+        ~/Downloads/. Do not open it in a text editor.
+
+2. 🛑 HUMAN CHECKPOINT — wait for the developer to confirm the
+   download landed.
+
+3. Replace the keychain entry without touching the file content
+   yourself. Pipe the file straight into the OS secret store and
+   delete it (overwriting on Unix, `Remove-Item` on Windows).
+   Do not `cat`, `head`, `grep`, or otherwise read it.
+
+   macOS:
+   ```sh
+   PEM_FILE="$HOME/Downloads/<APP_SLUG>.<date>.private-key.pem"
+   security delete-generic-password -s "github-app-<APP_SLUG>-pem" 2>/dev/null
+   security add-generic-password \
+     -s "github-app-<APP_SLUG>-pem" -a "$USER" \
+     -w "$(cat "$PEM_FILE")"
+   rm -P "$PEM_FILE"
+   ```
+
+   Linux (libsecret):
+   ```sh
+   secret-tool store --label github-app-<APP_SLUG>-pem \
+     service github-app-<APP_SLUG>-pem < "$PEM_FILE"
+   shred -u "$PEM_FILE"
+   ```
+
+   Windows (PowerShell):
+   ```powershell
+   $Pem = Get-Content "$HOME\Downloads\<file>.pem" -Raw
+   $Secure = ConvertTo-SecureString $Pem -AsPlainText -Force
+   $Secure | Export-Clixml "$env:USERPROFILE\.secrets\github-app-<APP_SLUG>-pem.xml"
+   Remove-Variable Pem, Secure
+   Remove-Item "$HOME\Downloads\<file>.pem"
+   ```
+
+4. Verify by minting an installation token end-to-end. Discard the
+   output via `>/dev/null`; never print:
+
+   ```sh
+   . bin/agent-env.sh && [ -n "$GH_TOKEN" ] && echo "rotation ok"
+   ```
+
+5. 🛑 HUMAN CHECKPOINT — tell the developer to revoke the **old**
+   private key in the same App settings page ("Private keys" →
+   delete the old key by date). This invalidates any token already
+   minted from the old PEM, including ones that may have leaked.
+```
+
 ## Fallbacks
+
+### Debugging the token mint
+
+If `bin/agent-env.sh` or `bin/app-token.py` fails — never inspect
+the PEM. Use only these diagnostics:
+
+- **Is the keychain entry present?**
+  `security find-generic-password -s "github-app-${APP_SLUG}-pem" >/dev/null && echo present`
+  (macOS; analogous `secret-tool lookup` / `Test-Path` on other OSes).
+- **Is `pyjwt` installed?**
+  `python3 -c "import jwt, requests; print('ok')"`
+- **Does the JWT mint succeed?** Run `bin/app-token.py` end-to-end;
+  the failure mode is in its `r.raise_for_status()` line, which prints
+  the *GitHub error* — not the PEM. If you see `401 invalid JWT
+  signature`, suspect a stored-format mismatch (decode handling in
+  `app-token.py`).
+- **Is the token shape right?**
+  `. bin/agent-env.sh && [ -n "${GH_TOKEN%[!ghs_]*}" ] && echo ok`
+  (length / prefix check, no value emitted).
+
+If the PEM itself is suspect, **rotate** (Step 9) — do not
+investigate by reading bytes.
+
+### Other fallbacks
 
 - **No browser available (SSH / headless box).** Print the manifest
   URL and ask the developer to open it on a workstation, then paste
@@ -352,6 +540,7 @@ step number; let the developer decide retry vs. manual.
   run `gh auth switch`.
 - **`scripts/manifest-flow.py` fails with `ModuleNotFoundError`.**
   Run `pip install pyjwt cryptography requests` (per Pre-flight) and
-  retry.
+  retry. On macOS Homebrew Python, you may need
+  `--break-system-packages` (PEP 668) or a dedicated venv.
 - **Anything else.** Report it. Let the developer decide retry vs.
   manual.
