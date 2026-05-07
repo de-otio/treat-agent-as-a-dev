@@ -36,6 +36,15 @@ turn on branch protection on the default branch — by design it
 won't apply that itself, since repo settings on customer engagements
 typically belong to the customer. Total wall time: about 10 minutes.
 
+> **Heads-up for the smoke-test step.** On a brand-new private
+> repo, GitHub's search backend takes a while to index the first
+> PR — sometimes minutes, sometimes hours. While that's happening
+> the repo's `/pulls` listing page can show "There aren't any open
+> pull requests" *even though the tab badge counts the bot's PR*.
+> The direct PR URL (`/<owner>/<repo>/pull/1`) and `gh api
+> repos/<owner>/<repo>/pulls` both work fine — use those to find
+> the PR for the approval step.
+
 ## What's in this repo
 
 - [`RUNBOOK.md`](RUNBOOK.md) — the playbook the agent follows

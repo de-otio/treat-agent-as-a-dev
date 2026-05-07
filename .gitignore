@@ -22,3 +22,7 @@ Thumbs.db
 *.pem
 # doc-search index
 .doc-search-index
+
+analysis/
+tmp/
+plans/
