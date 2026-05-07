@@ -2,14 +2,13 @@
 # usage: . bin/agent-env.sh   (or `source bin/agent-env.sh` in bash)
 #
 # Substitute these placeholders during setup (RUNBOOK Step 5):
-#   <APP_ID>        — numeric App ID (Step 1 output)
-#   <INSTALL_ID>    — numeric Installation ID (Step 3 output)
-#   <engagement>    — engagement slug
-#   <dev>           — developer slug
+#   <APP_ID>     — numeric App ID (Step 1 output)
+#   <INSTALL_ID> — numeric Installation ID (Step 3 output)
+#   <APP_SLUG>   — bot slug as returned by GitHub (Step 1 output)
 
 APP_ID="<APP_ID>"
 INSTALL_ID="<INSTALL_ID>"
-APP_SLUG="<engagement>-<dev>-bot"
+APP_SLUG="<APP_SLUG>"
 KEYCHAIN_KEY="github-app-${APP_SLUG}-pem"
 
 case "$(uname -s)" in

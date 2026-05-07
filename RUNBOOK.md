@@ -2,8 +2,8 @@
 
 You are an AI coding agent setting up a GitHub App on behalf of a
 developer. End state: PRs in the developer's target repo show
-`<engagement>-<dev>-bot[bot]` as author; the developer reviews and
-approves; the bot can't self-approve (GitHub Apps cannot approve PRs).
+`<APP_SLUG>[bot]` as author; the developer reviews and approves; the
+bot can't self-approve (GitHub Apps cannot approve PRs).
 
 ## How to use this repo
 
@@ -36,17 +36,30 @@ operate at a pinned tag, never `main` (see [README.md → Pinning](README.md#pin
    developer's browser. Each is marked `🛑 HUMAN CHECKPOINT`. Do not
    proceed past one until the developer has confirmed.
 6. **Ask, don't guess.** If a required input is missing, ask. Do not
-   invent values for `<engagement>`, `<dev>`, `<owner>/<repo>`, or
-   `<gh-user>`.
+   invent values for `<engagement>`, `<dev>`, `<owner>/<repo>`,
+   `<gh-user>`, or `<bot-name>`.
 
 ## Inputs
 
-| Variable          | Example            | Notes                              |
-|-------------------|--------------------|------------------------------------|
-| `<engagement>`    | `acme`             | lowercase slug, no spaces          |
-| `<dev>`           | `alice`            | lowercase slug, no spaces          |
-| `<owner>/<repo>`  | `acme-co/widgets`  | target repo on github.com          |
-| `<gh-user>`       | `alice-jones`      | the developer's GitHub handle      |
+**Glossary.** "Engagement" means the specific customer project or
+piece of client work this bot is for. It's a short lowercase slug
+(e.g. `acme`, `acme-q3`) that namespaces the bot's name, the
+keychain entry holding its PEM, and the repo it operates on, so that
+work for different customers stays cleanly separated. If the
+developer isn't doing client work, treat it as a project label.
+
+| Variable          | Example            | Notes                                          |
+|-------------------|--------------------|------------------------------------------------|
+| `<engagement>`    | `acme`             | customer / project slug; lowercase, no spaces  |
+| `<dev>`           | `alice`            | developer slug; lowercase, no spaces           |
+| `<owner>/<repo>`  | `acme-co/widgets`  | target repo on github.com                      |
+| `<gh-user>`       | `alice-jones`      | the developer's GitHub handle                  |
+| `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<dev>-bot` slug |
+
+The default bot name is `<engagement>-<dev>-bot`. If the developer
+wants a different name, capture it as `<bot-name>` and pass it via
+`--name` in Step 1. Either way, GitHub returns the canonical slug
+after creation as `APP_SLUG`; everything downstream uses that.
 
 Detect host OS once and reuse:
 
@@ -72,12 +85,22 @@ approval (Step 7). It must remain logged in throughout.
 
 ## Step 1 — Register the App via manifest flow 🛑
 
-Run [`scripts/manifest-flow.py`](scripts/manifest-flow.py):
+Run [`scripts/manifest-flow.py`](scripts/manifest-flow.py). With the
+default name (`<engagement>-<dev>-bot`):
 
 ```sh
 eval "$(python3 scripts/manifest-flow.py \
   --engagement <engagement> \
   --dev <dev> \
+  --gh-user <gh-user>)"
+echo "$APP_ID $APP_SLUG $APP_INSTALL_URL"
+```
+
+Or with a custom bot name:
+
+```sh
+eval "$(python3 scripts/manifest-flow.py \
+  --name <bot-name> \
   --gh-user <gh-user>)"
 echo "$APP_ID $APP_SLUG $APP_INSTALL_URL"
 ```
@@ -96,7 +119,9 @@ The script:
 5. Captures the redirect, exchanges the code via
    `POST /app-manifests/{code}/conversions`.
 6. Writes the PEM directly to the OS secret store under key
-   `github-app-<engagement>-<dev>-bot-pem`.
+   `github-app-${APP_SLUG}-pem`, where `APP_SLUG` is the slug
+   GitHub returned (may differ from the requested name if GitHub
+   appended a disambiguator).
 7. Prints `APP_ID`, `APP_SLUG`, `APP_INSTALL_URL` on stdout in
    shell-eval format. No secrets printed.
 
@@ -205,14 +230,14 @@ do not skip this step.
 Copy each file from this repo's `templates/` directory into the
 developer's engagement repo. Substitute placeholders inline:
 
-| Source (this repo)                  | Destination (engagement repo) | Substitute                                                  |
-|-------------------------------------|-------------------------------|-------------------------------------------------------------|
-| `templates/bin/app-token.py`        | `bin/app-token.py`            | (none — verbatim)                                           |
-| `templates/bin/agent-env.sh`        | `bin/agent-env.sh`            | `<APP_ID>`, `<INSTALL_ID>`, `<engagement>`, `<dev>`         |
-| `templates/bin/agent-env.ps1`       | `bin/agent-env.ps1`           | `<APP_ID>`, `<INSTALL_ID>`, `<engagement>`, `<dev>`         |
-| `templates/bin/agent`               | `bin/agent`                   | (none)                                                      |
-| `templates/bin/agent.ps1`           | `bin/agent.ps1`               | (none)                                                      |
-| `templates/git-hooks/pre-commit`    | `.git/hooks/pre-commit`       | `<engagement>`, `<dev>`                                     |
+| Source (this repo)                  | Destination (engagement repo) | Substitute                                  |
+|-------------------------------------|-------------------------------|---------------------------------------------|
+| `templates/bin/app-token.py`        | `bin/app-token.py`            | (none — verbatim)                           |
+| `templates/bin/agent-env.sh`        | `bin/agent-env.sh`            | `<APP_ID>`, `<INSTALL_ID>`, `<APP_SLUG>`    |
+| `templates/bin/agent-env.ps1`       | `bin/agent-env.ps1`           | `<APP_ID>`, `<INSTALL_ID>`, `<APP_SLUG>`    |
+| `templates/bin/agent`               | `bin/agent`                   | (none)                                      |
+| `templates/bin/agent.ps1`           | `bin/agent.ps1`               | (none)                                      |
+| `templates/git-hooks/pre-commit`    | `.git/hooks/pre-commit`       | `<APP_SLUG>`                                |
 
 Make Unix scripts executable:
 
@@ -220,15 +245,15 @@ Make Unix scripts executable:
 chmod +x bin/app-token.py bin/agent-env.sh bin/agent .git/hooks/pre-commit
 ```
 
-Verify the substitutions took (no `<APP_ID>`-style placeholders left):
+Verify the substitutions took (no placeholders left):
 
 ```sh
 grep -E '^(APP_ID|INSTALL_ID|APP_SLUG)=' bin/agent-env.sh
 # → APP_ID="<numeric>"
 # → INSTALL_ID="<numeric>"
-# → APP_SLUG="<engagement>-<dev>-bot"
+# → APP_SLUG="<the slug GitHub returned>"
 
-! grep -n '<APP_ID>\|<INSTALL_ID>\|<engagement>\|<dev>' bin/*.sh bin/*.ps1 \
+! grep -n '<APP_ID>\|<INSTALL_ID>\|<APP_SLUG>' bin/*.sh bin/*.ps1 .git/hooks/pre-commit \
   || { echo "placeholders remain"; exit 1; }
 ```
 
@@ -297,9 +322,9 @@ Report to the developer:
 ```
 ✅ Setup complete.
 
-App:           <engagement>-<dev>-bot  (id <APP_ID>)
-Installed on:  <owner>/<repo>          (install id <INSTALL_ID>)
-PEM:           OS secret store, key github-app-<engagement>-<dev>-bot-pem
+App:           <APP_SLUG>           (id <APP_ID>)
+Installed on:  <owner>/<repo>       (install id <INSTALL_ID>)
+PEM:           OS secret store, key github-app-<APP_SLUG>-pem
 Smoke PR:      #<PR_NUM> merged at <SHA>
 
 Day-to-day: launch your agent CLI via `bin/agent <cli>` (e.g.

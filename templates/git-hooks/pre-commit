@@ -5,10 +5,9 @@
 # ~/.gitconfig (or %USERPROFILE%\.gitconfig).
 #
 # Substitute these placeholders during setup (RUNBOOK Step 5):
-#   <engagement>    — engagement slug
-#   <dev>           — developer slug
+#   <APP_SLUG>      — bot slug as returned by GitHub (Step 1 output)
 
-expected_suffix="+<engagement>-<dev>-bot[bot]@users.noreply.github.com"
+expected_suffix="+<APP_SLUG>[bot]@users.noreply.github.com"
 actual="$(git config user.email)"
 
 case "$actual" in
