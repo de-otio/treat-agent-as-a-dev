@@ -75,3 +75,28 @@ def manifest_conversion(code: str) -> dict:
     )
     r.raise_for_status()
     return r.json()
+
+
+def get_app_meta(app_id: int, pem: str) -> dict:
+    """GET /app — returns metadata of the App the JWT is for,
+    including `public`, `slug`, `name`, and the permissions/events
+    the App was registered with.
+
+    Unlike `GET /apps/<slug>` (which requires a user access token
+    from the App's owner — historically broken for private Apps,
+    see v0.5.2 changelog), `GET /app` authenticates as the App
+    itself via JWT, so it works regardless of public/private state
+    or whether the caller is the owner.
+
+    Used by `taaad doctor` to detect drift on Operating Rule 8
+    (Apps must stay private — `manifest.public` may have been
+    toggled `True` after creation via the github.com Edit page).
+    """
+    jwt_token = app_jwt(app_id, pem)
+    r = requests.get(
+        f"{API}/app",
+        headers={**HEADERS, "Authorization": f"Bearer {jwt_token}"},
+        timeout=10,
+    )
+    r.raise_for_status()
+    return r.json()

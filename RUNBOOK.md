@@ -78,6 +78,12 @@ This runbook drives the `taaad` CLI. Two flows live here:
    under the org instead** (see Step 1, `--org`), not to make the
    App public.
 
+   `taaad doctor` (since v0.5.5) calls `GET /app` on every run and
+   fails if the public flag has drifted to `true`, so this rule is
+   enforced continuously and not just at creation. If doctor flags
+   it, fix it immediately at
+   `https://github.com/settings/apps/<APP_SLUG>/edit`.
+
 9. **Slug becomes the public PR-author handle.** Every commit and
    PR the bot opens shows `<APP_SLUG>[bot]` as author, visible to
    anyone who can read the repo (and to anyone at all once the

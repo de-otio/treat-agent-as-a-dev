@@ -80,23 +80,52 @@ def _check_app(a: config.AppConfig) -> int:
         return 1
     _ok(f"PEM present at {a.keychain_key}")
 
-    if a.install_id is None:
-        _warn("install_id is unknown — run `taaad install`")
-        return fails
-
     try:
         pem = secrets.get_pem(a.keychain_key)
-        token = github.installation_token(a.app_id, a.install_id, pem)
-        del pem
-        if token and token.startswith("ghs_"):
-            _ok("installation token mints successfully")
-        else:
-            _err(f"installation token has unexpected shape")
-            fails += 1
-        del token
     except Exception as e:  # noqa: BLE001
-        _err(f"token mint failed: {e}")
-        fails += 1
+        _err(f"PEM load failed: {e}")
+        return 1
+
+    try:
+        # Operating Rule 8 drift detection: the App must remain
+        # private (`manifest.public = false`). Anyone with App-edit
+        # rights on github.com can flip the "Where can this GitHub
+        # App be installed?" toggle post-creation; we check on every
+        # doctor run. Independent of install_id — the public flag
+        # exists from registration time.
+        try:
+            meta = github.get_app_meta(a.app_id, pem)
+        except Exception as e:  # noqa: BLE001
+            _warn(f"could not verify App public flag: {e}")
+        else:
+            if meta.get("public"):
+                _err(
+                    f"App is PUBLIC — Operating Rule 8 says it must stay "
+                    f"private. Toggle off at "
+                    f"https://github.com/settings/apps/{a.slug}/edit "
+                    f"(\"Where can this GitHub App be installed?\")"
+                )
+                fails += 1
+            else:
+                _ok("App is private (Operating Rule 8)")
+
+        if a.install_id is None:
+            _warn("install_id is unknown — run `taaad install`")
+            return fails
+
+        try:
+            token = github.installation_token(a.app_id, a.install_id, pem)
+            if token and token.startswith("ghs_"):
+                _ok("installation token mints successfully")
+            else:
+                _err("installation token has unexpected shape")
+                fails += 1
+            del token
+        except Exception as e:  # noqa: BLE001
+            _err(f"token mint failed: {e}")
+            fails += 1
+    finally:
+        del pem
     return fails
 
 

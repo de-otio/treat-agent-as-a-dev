@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.5.5
+
+`taaad doctor` continuously enforces Operating Rule 8 (Apps must
+stay private). Closes the last finding from the v0.5.3 security
+review.
+
+- **`taaad doctor` queries `GET /app` on every run** and emits
+  `[FAIL] App is PUBLIC — Operating Rule 8 says it must stay
+  private` if the public flag has drifted. Pre-v0.5.5, Rule 8 was
+  only enforced at App creation time (`manifest.public = false`)
+  — anyone with App-edit rights on github.com could flip "Where
+  can this GitHub App be installed?" to *Any account* afterwards
+  and `taaad doctor` would happily report the App as healthy. The
+  new check makes the rule continuous, not one-shot.
+- **New API client function `github.get_app_meta(app_id, pem)`**
+  wraps `GET /app`. Authenticates as the App via JWT (not as a
+  user), so it works for both user-owned and org-owned private
+  Apps — unlike `GET /apps/<slug>` which was removed in v0.5.2 for
+  exactly that reason.
+- The check runs **before** the install-token mint and is
+  independent of `install_id` — an App without an install can
+  still be public and that's still a violation.
+- Tests: +3 in a new `test_github.py`. Total now 37, all passing.
+
 ## v0.5.4
 
 Security hardening release. Closes findings from a v0.5.3 security
