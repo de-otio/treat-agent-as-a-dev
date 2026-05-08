@@ -15,6 +15,12 @@ from taaad import config, identity
 
 
 def _check_allowlist(cmd: list[str], allowed: list[str]) -> None:
+    # Guardrail, not a sandbox: this is a basename check, trivially
+    # bypassable by symlinks or PATH manipulation. The point is to
+    # prevent typos and accidental misuse ("oops, I meant claude not
+    # claudine"), not to defend against a hostile user — anyone with
+    # PATH or symlink control on this machine can already read
+    # GH_TOKEN out of any child process's /proc/<pid>/environ.
     if not cmd:
         raise SystemExit("usage: taaad agent <cli> [args...]")
     base = os.path.basename(cmd[0])

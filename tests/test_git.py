@@ -95,10 +95,154 @@ def test_parse_owner_variants(monkeypatch):
     assert git.parse_owner("git@github.com:no-slash") is None
 
 
-def test_resolve_ssh_hostname_no_ssh(monkeypatch):
-    """If ssh is not on PATH, `_resolve_ssh_hostname` returns the
-    input host unchanged (graceful degrade, not a hard fail)."""
+def test_resolve_ssh_hostname_no_config(monkeypatch, tmp_path):
+    """If neither config file exists, `_resolve_ssh_hostname` returns
+    the input host unchanged (graceful degrade, not a hard fail)."""
     git._resolve_ssh_hostname.cache_clear()
-    monkeypatch.setattr(git.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", tmp_path / "no-such-file")
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "no-such-system")
     assert git._resolve_ssh_hostname("anything") == "anything"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def _write_config(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+def test_ssh_config_literal_match(monkeypatch, tmp_path):
+    """Plain `Host alias HostName foo` is the common multi-account
+    pattern. Verify literal match resolution."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Host github.com-personal
+  HostName github.com
+  IdentityFile ~/.ssh/id_personal
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("github.com-personal") == "github.com"
+    assert git._resolve_ssh_hostname("github.com") == "github.com"
+    assert git._resolve_ssh_hostname("unrelated") == "unrelated"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_glob_and_negation(monkeypatch, tmp_path):
+    """OpenSSH supports glob patterns and `!`-prefix negation in
+    `Host` blocks; verify both."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Host !github.com-test github.com-*
+  HostName github.com
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("github.com-personal") == "github.com"
+    assert git._resolve_ssh_hostname("github.com-work") == "github.com"
+    # negated explicitly → falls through, returns input unchanged
+    assert git._resolve_ssh_hostname("github.com-test") == "github.com-test"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_first_match_wins(monkeypatch, tmp_path):
+    """OpenSSH applies the *first* HostName directive from any
+    matching block, not the last. Verify our walker mirrors that."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Host *
+  HostName fallback.example.com
+
+Host github.com-personal
+  HostName github.com
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    # `Host *` matches first and provides a HostName → that wins
+    assert git._resolve_ssh_hostname("github.com-personal") == "fallback.example.com"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_match_block_skipped(monkeypatch, tmp_path):
+    """**Security**: `Match` blocks must be skipped entirely. A
+    `HostName` directive inside a `Match` (even `Match host`) must
+    not be returned, because the same parser path also reaches
+    `Match exec` — and we never want to be a trigger for that."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Match host github.com-personal
+  HostName should-not-be-returned
+
+Host github.com-personal
+  HostName github.com
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    # The Match block is skipped; the subsequent Host block wins.
+    assert git._resolve_ssh_hostname("github.com-personal") == "github.com"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_match_only_returns_input(monkeypatch, tmp_path):
+    """If the *only* alias resolution lives in a `Match` block, we
+    deliberately don't find it. Document this behaviour explicitly:
+    users who rely on `Match host` for aliasing must switch to plain
+    `Host` blocks for taaad's rewrite to find them."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Match host github.com-personal
+  HostName github.com
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("github.com-personal") == "github.com-personal"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_include(monkeypatch, tmp_path):
+    """`Include` directives recurse into other config files."""
+    git._resolve_ssh_hostname.cache_clear()
+    main = tmp_path / "config"
+    sub = tmp_path / "config.d" / "personal"
+    _write_config(sub, """
+Host github.com-personal
+  HostName github.com
+""")
+    _write_config(main, f"""
+Include {sub}
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", main)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("github.com-personal") == "github.com"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_include_cycle(monkeypatch, tmp_path):
+    """Include cycles must not infinite-loop or error out."""
+    git._resolve_ssh_hostname.cache_clear()
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    _write_config(a, f"Include {b}\nHost target\n  HostName real.example.com\n")
+    _write_config(b, f"Include {a}\n")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", a)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("target") == "real.example.com"
+    git._resolve_ssh_hostname.cache_clear()
+
+
+def test_ssh_config_quoted_value(monkeypatch, tmp_path):
+    """OpenSSH accepts quoted values; verify dequoting."""
+    git._resolve_ssh_hostname.cache_clear()
+    cfg = tmp_path / "config"
+    _write_config(cfg, """
+Host alias
+  HostName "github.com"
+""")
+    monkeypatch.setattr(git, "_SSH_USER_CONFIG", cfg)
+    monkeypatch.setattr(git, "_SSH_SYSTEM_CONFIG", tmp_path / "missing")
+    assert git._resolve_ssh_hostname("alias") == "github.com"
     git._resolve_ssh_hostname.cache_clear()

@@ -55,6 +55,8 @@ def _add_agent(sub: argparse._SubParsersAction) -> None:
 def _add_env(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("env", help="print export statements for the bot identity")
     p.add_argument("--app", help="override slug; default reads `bot.app` from cwd")
+    p.add_argument("--force", action="store_true",
+                   help="print to stdout even if it's a TTY (default: refuse)")
 
 
 def _add_credential_helper(sub: argparse._SubParsersAction) -> None:

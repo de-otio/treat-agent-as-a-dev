@@ -150,10 +150,18 @@ def run(args: argparse.Namespace) -> int:
     app_id = int(app["id"])
     keychain_key = config.keychain_key_for(slug)
 
-    pem = app["pem"]
+    # Pop the PEM out of the response dict so the only live reference
+    # is the local `pem` binding, then drop both immediately after the
+    # keyring write. Note: CPython strings are immutable, so this does
+    # not zero the bytes — see SECURITY.md "Residual risks".
+    pem = app.pop("pem")
     secrets.set_pem(keychain_key, pem)
-    pem = None  # discard
-    secrets.restrict_macos_acl(keychain_key, paths.taaad_executable())
+    del pem
+    del app
+
+    exe = paths.taaad_executable()
+    paths.assert_path_safe(exe)
+    secrets.restrict_macos_acl(keychain_key, exe)
 
     cfg = config.AppConfig(
         schema_version=config.SCHEMA_VERSION,

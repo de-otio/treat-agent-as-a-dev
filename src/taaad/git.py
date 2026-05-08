@@ -6,9 +6,11 @@ shell strings.
 
 from __future__ import annotations
 
+import fnmatch
 import functools
+import glob as _glob
+import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -105,37 +107,123 @@ _SSH_URL_RE = re.compile(
 )
 
 
+_SSH_USER_CONFIG = Path.home() / ".ssh" / "config"
+_SSH_SYSTEM_CONFIG = Path("/etc/ssh/ssh_config")
+_SSH_TOKEN_RE = re.compile(r"^\s*([A-Za-z]+)\s*[=\s]\s*(.+?)\s*$")
+
+
+def _matches_host(patterns: list[str], host: str) -> bool:
+    """Match `host` against an SSH `Host`/`Match host` pattern list.
+    Patterns may be globs (`*`, `?`); a leading `!` negates. A block
+    matches if at least one positive pattern matches and no
+    negation pattern matches. Case-insensitive (per OpenSSH semantics).
+    """
+    host_lc = host.lower()
+    matched = False
+    for raw in patterns:
+        if raw.startswith("!"):
+            if fnmatch.fnmatch(host_lc, raw[1:].lower()):
+                return False
+        else:
+            if fnmatch.fnmatch(host_lc, raw.lower()):
+                matched = True
+    return matched
+
+
+def _expand_includes(value: str, base_dir: Path) -> list[Path]:
+    """Expand an SSH `Include` value: env vars, `~`, globs.
+    Relative paths resolve against `base_dir` (~/.ssh/ for user
+    config, /etc/ssh/ for system config), per OpenSSH semantics.
+    """
+    expanded = os.path.expandvars(os.path.expanduser(value))
+    if not os.path.isabs(expanded):
+        expanded = str(base_dir / expanded)
+    return [Path(p) for p in sorted(_glob.glob(expanded))]
+
+
+def _ssh_config_lookup(
+    path: Path, queried_host: str, seen: set[Path], base_dir: Path
+) -> str | None:
+    """Walk a single SSH config file. Return the first `HostName` in
+    the first `Host` block whose pattern list matches `queried_host`,
+    honouring OpenSSH's "first match wins" semantics. Recurses into
+    `Include` directives.
+
+    `Match` blocks are skipped entirely. The reason is security: the
+    only reason taaad needs SSH config resolution at all is to
+    rewrite aliases like `git@github.com-personal:…` to HTTPS, and
+    aliases live under `Host`, not `Match`. By never entering a
+    `Match` block we avoid evaluating `Match exec`, which would run
+    arbitrary shell commands during resolution. If a user's config
+    relies on `Match host` for an alias, they should move it under a
+    plain `Host` block — `Match host` was never strictly needed for
+    that pattern.
+    """
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        return None
+    if resolved in seen:
+        return None  # cycle in Include directives
+    seen.add(resolved)
+    try:
+        text = resolved.read_text(encoding="utf-8", errors="replace")
+    except (FileNotFoundError, PermissionError, IsADirectoryError, OSError):
+        return None
+
+    in_match_block = False
+    in_matching_host = False
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0]
+        m = _SSH_TOKEN_RE.match(line)
+        if not m:
+            continue
+        key = m.group(1).lower()
+        value = m.group(2).strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+
+        if key == "host":
+            in_match_block = False
+            patterns = value.split()
+            in_matching_host = _matches_host(patterns, queried_host)
+        elif key == "match":
+            in_match_block = True
+            in_matching_host = False
+        elif key == "include" and not in_match_block:
+            for inc in _expand_includes(value, base_dir):
+                result = _ssh_config_lookup(inc, queried_host, seen, base_dir)
+                if result is not None:
+                    return result
+        elif key == "hostname" and in_matching_host and not in_match_block:
+            return value
+    return None
+
+
 @functools.lru_cache(maxsize=128)
 def _resolve_ssh_hostname(host: str) -> str:
-    """Resolve `host` via `ssh -G`, returning the canonical hostname.
+    """Resolve `host` to a canonical hostname via local SSH config.
 
-    `ssh -G <host>` parses the same `~/.ssh/config` (including
-    `Match`/`Include` directives, env-var expansion, etc.) that the
-    real ssh client uses for connection establishment, and prints
-    the resolved settings. We read the `hostname` line.
+    Walks `~/.ssh/config` then `/etc/ssh/ssh_config`, matching `host`
+    against `Host` glob patterns (case-insensitive, with negation
+    support). Returns the first `HostName` directive in a matching
+    block. If no config file exists, no block matches, or every
+    matching block omits `HostName`, returns `host` unchanged.
 
-    Falls back to returning `host` unchanged when ssh is not on PATH,
-    when ssh exits non-zero, when parsing fails, or when the
-    subprocess times out — degrading gracefully to "no alias
-    resolution" rather than failing the whole `taaad init`.
+    This deliberately does *not* shell out to `ssh -G`. `ssh -G`
+    fully evaluates the SSH config, including `Match exec` directives
+    that run arbitrary shell commands. Earlier versions of taaad used
+    `ssh -G` and were therefore a novel trigger for any `Match exec`
+    payload sitting in a developer's `~/.ssh/config`. The in-process
+    parser used here is strictly hostname-pattern-based — see
+    `_ssh_config_lookup` for the Match-skipping rationale.
     """
-    if shutil.which("ssh") is None:
-        return host
-    try:
-        p = subprocess.run(
-            ["ssh", "-G", host],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
+    for config_path in (_SSH_USER_CONFIG, _SSH_SYSTEM_CONFIG):
+        result = _ssh_config_lookup(
+            config_path, host, set(), config_path.parent
         )
-    except (subprocess.TimeoutExpired, OSError):
-        return host
-    if p.returncode != 0:
-        return host
-    for line in p.stdout.splitlines():
-        if line.startswith("hostname "):
-            return line.split(maxsplit=1)[1].strip()
+        if result is not None:
+            return result
     return host
 
 

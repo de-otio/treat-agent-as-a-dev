@@ -76,6 +76,52 @@ any process the attacker controls under the same user.
   [`keyrings.alt.PasswordStore`](https://pypi.org/project/keyrings.alt/)
   explicitly if your environment can't run a Secret Service.
 
+## Residual risks we accept
+
+These are known-and-bounded weaknesses of the current design. They
+are documented here so users can make informed decisions.
+
+- **PEM bytes in CPython process memory.** During `taaad register`
+  and every `taaad credential-helper` invocation, the PEM is held
+  briefly as a Python `str` (and inside `requests.Response`,
+  `json.loads` interim strings, and pyjwt's encoder). CPython's
+  immutable strings prevent reliable in-process zeroing; a
+  local-root attacker with debugger or core-dump access can
+  recover the PEM from a running process. We minimize the window
+  by `del`-ing references promptly and keeping these processes
+  short-lived. The keychain remains the primary persistence layer
+  to attack — at which point local-root is already required.
+
+- **`taaad rotate` shred is ineffective on copy-on-write
+  filesystems.** On APFS (macOS default since High Sierra), btrfs,
+  and ZFS, overwriting a file does not erase the original on-disk
+  extents — they linger until the filesystem garbage-collects.
+  The shred is theatre on those filesystems. Forensic recovery of
+  a freshly-rotated PEM file remains possible until the FS reuses
+  those blocks. Rotation itself (revoking the old PEM on
+  github.com — RUNBOOK Step 9 ¶4) is the security-relevant step,
+  not the file shred. Treat the on-disk PEM as compromised once
+  it lands in `~/Downloads/`, and assume rotation does not
+  retroactively erase it.
+
+- **`taaad agent` allowlist is a guardrail, not a sandbox.**
+  `allowed_commands` checks `os.path.basename(cmd[0])` against a
+  list. A user with PATH or symlink control can trivially bypass
+  it — but anyone with that level of access can also read
+  `GH_TOKEN` directly from any child process's environment
+  (`/proc/<pid>/environ` on Linux, `ps eauxww` on macOS). The
+  allowlist exists to prevent typos and accidental misuse, not
+  adversarial bypass.
+
+- **SSH config Match exec is *not* triggered by taaad** as of
+  v0.5.4. Earlier versions (v0.5.3) shelled out to `ssh -G <host>`
+  to resolve aliases, which fully evaluated `Match exec`
+  directives in `~/.ssh/config`. v0.5.4 replaced that with an
+  in-process parser (`git._ssh_config_lookup`) that walks `Host`
+  blocks only and silently skips `Match` blocks. If you depend on
+  `Match host` for SSH alias resolution in your config, switch to
+  plain `Host` blocks for taaad's rewrite to find them.
+
 ## What `taaad` does not do
 
 - Configure branch protection (RUNBOOK Step 4 is advisory only).

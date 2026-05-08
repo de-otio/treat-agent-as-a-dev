@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.5.4
+
+Security hardening release. Closes findings from a v0.5.3 security
+review of the `taaad register` localhost server, the SSH host alias
+resolver added in v0.5.3, and the `taaad env` token-printing path.
+No API breakage; one behavioural change (`taaad env` now refuses a
+TTY by default — see below).
+
+- **In-process SSH config parser replaces `ssh -G`.** v0.5.3 shelled
+  out to `ssh -G <host>` to resolve aliases like
+  `git@github.com-personal:…`. `ssh -G` fully evaluates the SSH
+  config including `Match exec` directives, which run arbitrary
+  shell commands during resolution — making `taaad init` a novel
+  trigger for any latent payload in a developer's `~/.ssh/config`.
+  v0.5.4 walks `~/.ssh/config` and `/etc/ssh/ssh_config` directly
+  with a strict hostname-pattern parser (literal/glob `Host`
+  blocks, `!`-negation, `Include` directives, cycle detection).
+  `Match` blocks are skipped entirely — the parser never runs
+  anything from the config file. If your alias lives in a `Match
+  host` block, move it to a plain `Host` block for taaad to find
+  it (`Match host` was never strictly needed for that use case).
+- **`taaad env` refuses to print to a TTY by default.** The
+  command emits `export GH_TOKEN=ghs_…` for shell `eval`. The old
+  behaviour printed unconditionally; running `taaad env` standalone
+  (without `eval $(...)`) landed the installation token in
+  scrollback, terminal history, and any logging tool watching the
+  TTY. v0.5.4 detects `sys.stdout.isatty()` and refuses with a
+  helpful error pointing at `eval "$(taaad env)"`. `--force`
+  bypasses the guard for unusual debugging. A stderr warning
+  (`# do not log this output`) is also emitted on every successful
+  invocation.
+- **`taaad register` now path-validates the binary before macOS
+  ACL.** The keychain ACL restriction (`security
+  add-generic-password -T <abs-taaad>`) was being called with
+  `paths.taaad_executable()` directly. Other call sites
+  (`init.py`, `credential_helper.py`) wrap that with
+  `paths.assert_path_safe()` to verify ownership and mode of every
+  path component before trusting it. `register.py` now does the
+  same.
+- **PEM lifetime in `register.py` reduced.** The PEM is now
+  `pop`-ed off the response dict (rather than read), the local
+  binding is `del`-ed immediately after the keyring write, and
+  the response dict itself is `del`-ed. This does not zero the
+  bytes (CPython strings are immutable; `requests.Response` and
+  `json.loads` interim strings still hold copies until garbage
+  collection), but it tightens the explicit-reference window.
+  SECURITY.md now documents this honestly under "Residual risks".
+- **SECURITY.md: new "Residual risks we accept" section.** Covers
+  the in-memory PEM hygiene gap above, the ineffectiveness of
+  `taaad rotate`'s file shred on copy-on-write filesystems (APFS,
+  btrfs, ZFS), and the `taaad agent` allowlist's role as a
+  guardrail rather than a sandbox.
+- **Tests: 34 total, +11 new.** SSH config parser fixtures cover
+  literal match, glob and negation patterns, first-match-wins
+  semantics, `Match` block skipping (security-critical), `Match`-only
+  configs returning the input unchanged, `Include` recursion,
+  `Include` cycles, quoted values, and missing-config graceful
+  degrade. New `test_env.py` covers TTY refuse, `--force` bypass,
+  and pipe + stderr warning.
+
 ## v0.5.3
 
 Bug fixes and breadth improvements to `taaad register` and the URL
