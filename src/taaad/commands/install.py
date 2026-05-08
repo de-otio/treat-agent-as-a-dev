@@ -23,9 +23,12 @@ from taaad import config, github, secrets
 def _ensure_app_config(slug: str, app_id_hint: int | None) -> config.AppConfig:
     """Return an AppConfig for `slug`, creating one if missing.
 
-    For re-enrolment: PEM in keychain, no apps/<slug>.toml. Mint a
-    JWT against `app_id_hint` (or fail and ask for --app-id) and
-    confirm via GET /apps/<slug>. Then write a fresh apps/<slug>.toml.
+    For re-enrolment: PEM in keychain, no apps/<slug>.toml. The
+    user supplies `--app-id`; we trust it (the next API call —
+    `/app/installations` with a JWT minted from this ID — will
+    reject the pair if it's wrong). We do NOT call /apps/<slug>:
+    that endpoint requires a user access token from the App's
+    owner and 401s with an App JWT, which is what we have.
     """
     keychain_key = config.keychain_key_for(slug)
     try:
@@ -40,16 +43,13 @@ def _ensure_app_config(slug: str, app_id_hint: int | None) -> config.AppConfig:
     if app_id_hint is None:
         raise SystemExit(
             f"PEM found at {keychain_key} but no apps/{slug}.toml. "
-            f"Pass --app-id <id> so we can discover the App. (Find "
-            f"the ID at https://github.com/settings/apps/{slug}.)"
+            f"Pass --app-id <id>. (Find it at "
+            f"https://github.com/settings/apps/{slug}.)"
         )
-    pem = secrets.get_pem(keychain_key)
-    meta = github.get_app_by_slug(slug, pem, app_id_hint)
-    pem = None  # noqa: F841 — discard
     return config.AppConfig(
         schema_version=config.SCHEMA_VERSION,
-        slug=meta.slug,
-        app_id=meta.id,
+        slug=slug,
+        app_id=app_id_hint,
         install_id=None,
         account=None,
         keychain_key=keychain_key,

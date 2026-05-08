@@ -35,33 +35,6 @@ def app_jwt(app_id: int, pem: str) -> str:
     )
 
 
-def app_jwt_unknown_id(pem: str) -> str:
-    """Self-discovery JWT — the App ID is the issuer claim. We don't
-    have it, so we mint with a placeholder and fix this in
-    `discover_app`. Used only when we *have* the PEM but not the ID
-    yet (re-enrolment from existing keychain entries)."""
-    raise NotImplementedError(
-        "GitHub requires `iss` to be the numeric App ID; "
-        "discover by other means"
-    )
-
-
-def get_app_by_slug(slug: str, pem: str, app_id_hint: int) -> AppMeta:
-    """Fetch /apps/<slug> using a JWT — confirms slug↔id and returns
-    canonical metadata. The caller passes the suspected `app_id` so
-    we can mint the JWT; the response confirms it.
-    """
-    jwt_token = app_jwt(app_id_hint, pem)
-    r = requests.get(
-        f"{API}/apps/{slug}",
-        headers={**HEADERS, "Authorization": f"Bearer {jwt_token}"},
-        timeout=10,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return AppMeta(id=int(data["id"]), slug=data["slug"])
-
-
 def list_installations(app_id: int, pem: str) -> list[dict]:
     jwt_token = app_jwt(app_id, pem)
     r = requests.get(

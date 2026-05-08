@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.2
+
+Bug fix for `taaad install` against private Apps.
+
+- `GET /apps/<slug>` requires a user access token from the App's
+  owner; minting an App JWT against it returns 401 (private App)
+  or 404 (unauth). v0.5 used this for self-discovery of `app_id`
+  during re-enrolment, which broke for private Apps.
+- `taaad install` now trusts the `--app-id` flag and skips the
+  `/apps/<slug>` call. The next API call
+  (`/app/installations` with the JWT minted from `app_id`) is the
+  real test — if the (PEM, app_id) pair is wrong, that call
+  rejects.
+- `github.get_app_by_slug` removed (it never worked for private
+  Apps).
+- No security implications — fails closed.
+
 ## v0.5.1
 
 Bug fix for re-enrolment from v0.4 keychain entries on macOS.
