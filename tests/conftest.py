@@ -29,6 +29,16 @@ def tmp_git_repo(tmp_path) -> Path:
 
 
 @pytest.fixture(autouse=True)
+def _bypass_path_safety(monkeypatch):
+    """`paths.assert_path_safe` refuses world-writable binary paths,
+    which is correct at runtime but trips on GitHub's hosted-toolcache
+    Python (mode 777). Tests for init/uninit are about `.git/config`
+    writes, not path safety — disable the check here."""
+    from taaad import paths
+    monkeypatch.setattr(paths, "assert_path_safe", lambda _path: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_keyring(monkeypatch):
     """Force the in-memory keyring for the test suite so tests don't
     touch the real macOS Keychain / Linux Secret Service / Windows
