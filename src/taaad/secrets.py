@@ -54,7 +54,26 @@ def get_pem(keychain_key: str) -> str:
             f"{_username()!r}. On Linux, check that your session "
             f"keyring is unlocked."
         )
-    return pem
+    return _maybe_dehex(pem)
+
+
+def _maybe_dehex(value: str) -> str:
+    """macOS `security ... -w` returns ASCII hex when the stored
+    value contains newlines (which any PEM does). Decode
+    transparently so callers don't need to know how the keychain
+    backend encoded it.
+    """
+    import binascii
+
+    stripped = value.strip()
+    if stripped and len(stripped) % 2 == 0 and all(
+        c in "0123456789abcdefABCDEF" for c in stripped
+    ):
+        try:
+            return binascii.unhexlify(stripped).decode()
+        except (binascii.Error, UnicodeDecodeError):
+            return value
+    return value
 
 
 def has_pem(keychain_key: str) -> bool:

@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.5.1
+
+Bug fix for re-enrolment from v0.4 keychain entries on macOS.
+
+- `secrets.get_pem` now transparently hex-decodes the value
+  returned by macOS `security ... -w` when the stored content
+  contains newlines (any PEM does). Without this, JWT minting
+  fails with 401 against `/apps/<slug>` because the "PEM" passed
+  to `jwt.encode` is actually its hex encoding. v0.4's
+  `app-token.py` had this decode inline; it was dropped in v0.5
+  by mistake. New v0.5.0 registrations on macOS are also affected
+  on subsequent reads.
+- New tests: hex-encoded round-trip via `keyring`, plain
+  passthrough, presence check.
+- No security implications — the bug fails closed (operations
+  fail rather than silently mishandling the PEM).
+
 ## v0.5.0
 
 Hard cut from v0.4. Replaces the per-repo shell + PowerShell
