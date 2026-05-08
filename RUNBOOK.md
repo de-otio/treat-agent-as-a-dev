@@ -68,6 +68,25 @@ This runbook drives the `taaad` CLI. Two flows live here:
    call `keyring`, `security`, `secret-tool`, or
    `find-generic-password` directly to read or write the PEM.
 
+8. **Apps must stay private.** `taaad register` creates the App
+   with `manifest.public = false`. Do not change that flag, and do
+   not toggle "Where can this GitHub App be installed?" to *Any
+   account* on github.com after creation. A public App is
+   installable by anyone on their own repos — unnecessary surface
+   for an engagement-scoped bot. If a private user-owned App can't
+   be installed on the target org, the answer is to **register
+   under the org instead** (see Step 1, `--org`), not to make the
+   App public.
+
+9. **Slug becomes the public PR-author handle.** Every commit and
+   PR the bot opens shows `<APP_SLUG>[bot]` as author, visible to
+   anyone who can read the repo (and to anyone at all once the
+   repo goes public). The slug **must not** include customer,
+   client, or employer names if the target repo is public, OSS,
+   or could plausibly be open-sourced later. Pick a neutral slug
+   (`<engagement>` = a project codename or org slug, not a brand
+   name).
+
 ## Inputs
 
 **Glossary.** "Engagement" means the specific customer project or
@@ -79,15 +98,36 @@ project label.
 
 | Variable          | Example            | Notes                                          |
 |-------------------|--------------------|------------------------------------------------|
-| `<engagement>`    | `acme`             | customer / project slug; lowercase, no spaces  |
+| `<engagement>`    | `acme`             | customer / project slug; lowercase, no spaces; **must not contain employer/customer names if target repo is or could be public** (see Operating Rule 9) |
 | `<owner>/<repo>`  | `acme-co/widgets`  | target repo on github.com                      |
 | `<gh-user>`       | `alice-jones`      | the developer's GitHub handle                  |
 | `<bot-name>`      | `acme-alice-agent` | optional; overrides default `<engagement>-<gh-user>-bot` slug |
+| `<owner-account>` | `acme-co`          | account that owns the target repo — an org or a user |
 
 The default bot name is `<engagement>-<gh-user>-bot`. If the
 developer wants a different name, capture it as `<bot-name>` and
 pass it via `--name` in Step 1. GitHub returns the canonical slug
 after creation; everything downstream uses that.
+
+### Choose where the App is owned
+
+Private GitHub Apps can only be installed on the account that
+owns them. So the App's owner must match the target repo's owner
+(or be the same user, when targeting a personal repo):
+
+- **Target repo is in an organization** (`<owner>/<repo>` where
+  `<owner>` is an org): register under that org with
+  `--org <owner>`. The developer must be an org owner / admin to
+  create Apps there.
+- **Target repo is in the developer's personal account**
+  (`<owner>` == `<gh-user>`): default — no `--org` flag, App is
+  user-owned.
+- **Target repo is in a different user's account or an org you
+  don't admin**: you cannot register a private App that can be
+  installed there. Stop and tell the developer.
+
+Do **not** propose making the App public to bridge a mismatch
+(Operating Rule 8).
 
 ## Pre-flight
 
@@ -127,26 +167,44 @@ Verify: `taaad --version`.
 ## Step 1 — Register the App via manifest flow 🛑
 
 ```sh
-# Default name (`<engagement>-<gh-user>-bot`):
+# User-owned (default — only when target repo is in <gh-user>'s personal account):
 taaad register --engagement <engagement> --gh-user <gh-user>
 
+# Org-owned (when target repo is in an org — most engagement repos):
+taaad register --engagement <engagement> --gh-user <gh-user> --org <owner-account>
+
 # Or with a custom name:
-taaad register --name <bot-name> --gh-user <gh-user>
+taaad register --name <bot-name> --gh-user <gh-user> [--org <owner-account>]
 ```
+
+See [Choose where the App is owned](#choose-where-the-app-is-owned)
+above for the user-vs-org decision. Always pass `--org` when the
+target repo is in an organization, or the install in Step 3 will
+fail (private user-owned Apps can't be installed on a separate org).
 
 The command:
 
-1. Generates a manifest with the App's name, redirect URL, and the
+1. Generates a manifest with the App's name, redirect URL, the
    minimum permissions (`contents:write`, `pull_requests:write`,
-   `metadata:read`).
+   `metadata:read`), and **`public: false`** (Operating Rule 8).
 2. Starts a localhost HTTP server on a free port. The server
-   validates `Host` and `Origin` headers and rejects
-   `Sec-Fetch-Site: cross-site`.
+   validates `Host` and `Origin` headers; on the form-serve
+   endpoint (`/`) it also rejects `Sec-Fetch-Site: cross-site`
+   (CSRF protection on the auto-POSTing form). The `/callback`
+   endpoint accepts cross-site (it's the redirect from
+   github.com); the `state` token guards it instead.
 3. Opens a browser to a self-hosted form that auto-POSTs the
-   manifest to GitHub.
+   manifest to GitHub at either
+   `https://github.com/settings/apps/new` (user-owned) or
+   `https://github.com/organizations/<org>/settings/apps/new`
+   (org-owned, when `--org` is set).
 4. **🛑 HUMAN CHECKPOINT 1.** The developer reviews the permissions
    on the GitHub page and clicks **Create GitHub App**. They must
-   be logged in as `<gh-user>` — not the customer's account.
+   be logged in as `<gh-user>` — not the customer's account. When
+   `--org` is set, the page header reads "Register new GitHub App
+   for the **`<org>`** organization"; if the developer doesn't see
+   that, they're on the wrong page and the App will end up
+   user-owned by mistake.
 5. Captures the redirect, exchanges the code via
    `POST /app-manifests/{code}/conversions`.
 6. Writes the PEM directly to the OS secret store (`keyring`)
@@ -185,13 +243,18 @@ Start-Process "https://github.com/apps/<APP_SLUG>/installations/new"  # Windows
 
 **🛑 HUMAN CHECKPOINT 2.** The developer sees "Install
 `<app-name>`", selects **Only select repositories**, picks
-`<owner>/<repo>`, clicks **Install**.
+`<owner>/<repo>`, clicks **Install**. For an org-owned App
+(registered with `--org`), the account picker will show the org;
+for a user-owned App, only the owner's personal account.
 
 Then capture the install ID:
 
 ```sh
-taaad install <APP_SLUG> --account <owner>
+taaad install <APP_SLUG> --account <owner-account>
 ```
+
+`<owner-account>` must match the org or user that owns the target
+repo (and the App, per Step 1).
 
 This polls for up to 3 minutes. It mints an App JWT in `taaad`'s
 process memory using the keychain PEM, calls
@@ -199,9 +262,14 @@ process memory using the keychain PEM, calls
 `apps/<APP_SLUG>.toml`. Idempotent: re-runs on an unchanged
 install are no-ops.
 
-If the developer installed on a different repo or under a different
-account (e.g. an org instead of their personal account), the poll
-times out. Ask them to confirm what they selected.
+If the poll times out: most often the developer installed under
+the wrong account, or the App is private + user-owned but the
+target repo is in an org (Step 1 should have used `--org`). Ask
+them to confirm what they selected; if there's a mismatch, the
+fix is to delete the App (`taaad apps remove <slug>
+--ack-github-cleanup` after manual github.com deletion) and
+re-register with the right ownership — **not** to make the App
+public.
 
 ## Step 4 — Recommend branch protection (advisory)
 
@@ -251,8 +319,17 @@ taaad init
 
 What this does (writes only `.git/config`, no tracked files):
 
-- If `origin` is `git@github.com:…`, rewrites it to `https://`.
-  (Git only invokes credential helpers for HTTPS.)
+- If `origin` is any github.com SSH URL, rewrites it to `https://`.
+  (Git only invokes credential helpers for HTTPS.) Recognised
+  forms:
+  - canonical SCP-style: `git@github.com:<owner>/<repo>.git`
+  - `ssh://` form: `ssh://git@github.com[:22]/<owner>/<repo>.git`
+  - SSH host aliases that resolve to `github.com` via
+    `~/.ssh/config` (e.g. `git@github.com-personal:…`,
+    `git@gh-work:…`). Resolution is done by shelling out to
+    `ssh -G <host>` and reading the `hostname` line, which is the
+    same mechanism the real ssh client uses, so any alias git
+    can connect through is rewritable.
 - Prompts the developer to pick an app, defaulting to the one whose
   `account` matches the origin owner. Or pre-select with
   `taaad init --app <slug>`.
@@ -262,6 +339,20 @@ What this does (writes only `.git/config`, no tracked files):
   mode at write time.
 - Records the repo path in `<config-dir>/used-by-<slug>.txt` so
   later `taaad apps remove` can offer to clean up matched repos.
+
+> ⚠️ **If origin survives as SSH after `taaad init`** — e.g.
+> origin uses a custom protocol (`gh:foo/bar.git` via
+> `insteadOf`), or `ssh -G` is unavailable, or the alias doesn't
+> resolve to github.com — git push will use SSH key auth instead
+> of the bot's installation token, and the *push* will be
+> attributed to the developer's SSH key (commits will still show
+> the bot as author/committer, since `user.name`/`user.email`
+> are set, but the push line breaks the auditability story).
+> After `taaad init`, always run `git remote -v` to confirm
+> origin is `https://github.com/...`. If it's not, rewrite it
+> manually: `git remote set-url origin
+> https://github.com/<owner>/<repo>.git` and re-run `taaad
+> doctor`.
 
 Then optionally:
 

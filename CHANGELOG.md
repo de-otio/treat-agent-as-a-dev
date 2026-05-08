@@ -1,5 +1,69 @@
 # Changelog
 
+## v0.5.3
+
+Bug fixes and breadth improvements to `taaad register` and the URL
+rewrite in `taaad init`. Two new operating rules in the runbook
+(Apps must stay private; slug visibility = public PR-author handle).
+
+- **Bug fix: `taaad register` callback rejected by its own server.**
+  The localhost server's CSRF guard rejected `Sec-Fetch-Site:
+  cross-site` on every GET, including the `/callback` endpoint —
+  but `/callback` is *necessarily* cross-site (it's the redirect
+  from github.com). Modern browsers always send the header on
+  redirect navigations, so the manifest flow failed end-to-end with
+  `403 cross-site request rejected` on the legitimate path. The
+  guard now applies only to `/` (where the CSRF concern is real,
+  since that page auto-POSTs to GitHub on load). `/callback` is
+  guarded by the `state` token instead.
+- **New: `--org <org>` flag for `taaad register`.** Routes the
+  manifest flow to
+  `https://github.com/organizations/<org>/settings/apps/new` so the
+  App is owned by the organization, not the registering user.
+  Required when the target repo lives in an org and the App is
+  private (Operating Rule 8): private user-owned Apps cannot be
+  installed on a separate org. Without `--org`, the
+  install in Step 3 fails with no installation found, and the only
+  fixes are either a public App (forbidden by Rule 8) or
+  re-registration with the right ownership.
+- **Robust SSH URL rewrite in `taaad init`.** `coerce_https` and
+  `parse_owner` now recognise:
+  - canonical `git@github.com:…` (unchanged)
+  - `ssh://git@github.com[:port]/…` form
+  - SSH host aliases (`git@github.com-personal:…`,
+    `git@gh-work:…`) — resolved by shelling out to `ssh -G <host>`
+    and reading the `hostname` line, the same path the real ssh
+    client uses, so any alias git can connect through is
+    rewritable.
+  Without this, multi-account developers ended up with origin still
+  pointing at SSH after `taaad init`, the credential helper never
+  ran, and pushes were attributed to the developer's SSH key
+  instead of the bot's installation token. `_resolve_ssh_hostname`
+  is `lru_cache`'d and degrades gracefully (5 s timeout, falls back
+  to literal-host matching when ssh is missing or fails).
+- **Operating Rule 8: Apps must stay private.** `manifest.public`
+  is `false` by default; do not toggle "Where can this GitHub App
+  be installed?" to *Any account* on github.com after creation.
+  When a private user-owned App can't be installed on the target
+  org, the answer is `--org`, not making it public.
+- **Operating Rule 9: Slug visibility.** `<APP_SLUG>[bot]` is the
+  public PR-author handle on every commit and PR the bot opens.
+  The slug must not contain customer / client / employer names if
+  the target repo is or could become public.
+- **Runbook: Inputs / Step 1 / Step 3 / Step 5 updated** to cover
+  the user-vs-org ownership decision, the `--org` flag, the
+  install-target mismatch troubleshooting path, and the residual
+  cases where SSH-to-HTTPS rewrite still needs a manual override
+  (`insteadOf` rules, `ssh -G` unavailable).
+- New tests in `test_git.py` for `ssh://` form, SSH aliases
+  (monkeypatched resolver), `parse_owner` variants, and graceful
+  degrade when ssh is missing. 23/23 passing.
+- No security implications. The Sec-Fetch-Site fix preserves
+  the `state` CSRF guard on `/callback` and tightens the cross-site
+  check to where it actually applies. The new `ssh -G` resolution
+  is a local subprocess call with a 5 s timeout; failure modes
+  fall back to the previous behaviour, never to a broader rewrite.
+
 ## v0.5.2
 
 Bug fix for `taaad install` against private Apps.

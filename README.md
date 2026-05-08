@@ -20,6 +20,13 @@ your agent:
 > `<engagement>` using my GitHub user `<your-handle>`. Target repo
 > `<owner>/<repo>`.
 
+If the target repo lives in an organization (most common case),
+the agent will pass `--org <owner>` to `taaad register` so the
+App is owned by the org. If the target is in your personal
+account, the App is user-owned by default. Apps are always
+private (Operating Rule 8 in RUNBOOK.md) — there is no path that
+makes them public.
+
 The agent reads [RUNBOOK.md](RUNBOOK.md) and drives. You'll be
 asked to do three things in your browser (create the App, install
 it on the repo, approve the smoke-test PR); everything else is

@@ -13,6 +13,7 @@ def _add_register(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--gh-user", required=True)
     p.add_argument("--engagement", help="default-name slug; required unless --name is given")
     p.add_argument("--name", help="bot name (overrides --engagement)")
+    p.add_argument("--org", help="register the App under an organization (default: under --gh-user)")
 
 
 def _add_install(sub: argparse._SubParsersAction) -> None:

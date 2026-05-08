@@ -39,7 +39,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _make_handler(port: int, state: str, manifest_attr: str, holder: dict):
+def _make_handler(port: int, state: str, manifest_attr: str, holder: dict, form_action: str):
     expected_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
 
     class H(http.server.BaseHTTPRequestHandler):
@@ -59,17 +59,21 @@ def _make_handler(port: int, state: str, manifest_attr: str, holder: dict):
                 f"http://localhost:{port}",
             ):
                 return self._reject(403, "origin mismatch")
-            sec_fetch_site = self.headers.get("Sec-Fetch-Site", "")
-            if sec_fetch_site == "cross-site":
-                return self._reject(403, "cross-site request rejected")
 
             url = urllib.parse.urlparse(self.path)
             params = urllib.parse.parse_qs(url.query)
             if url.path == "/":
+                # CSRF: the form auto-POSTs to GitHub on load, so reject
+                # any cross-site initiator (e.g. iframe from a malicious
+                # page). /callback is necessarily cross-site (redirect
+                # from github.com); the `state` token below guards it.
+                sec_fetch_site = self.headers.get("Sec-Fetch-Site", "")
+                if sec_fetch_site == "cross-site":
+                    return self._reject(403, "cross-site request rejected")
                 form = (
                     "<!doctype html><html><body onload='document.f.submit()'>"
                     "<form id='f' name='f' method='post' "
-                    f"action='https://github.com/settings/apps/new?state={state}'>"
+                    f"action='{form_action}?state={state}'>"
                     f"<input type='hidden' name='manifest' value=\"{manifest_attr}\">"
                     "</form><p>Submitting to GitHub…</p></body></html>"
                 )
@@ -117,11 +121,19 @@ def run(args: argparse.Namespace) -> int:
     manifest_attr = html.escape(json.dumps(manifest), quote=True)
     holder: dict = {}
 
-    handler = _make_handler(port, state, manifest_attr, holder)
+    if args.org:
+        form_action = f"https://github.com/organizations/{args.org}/settings/apps/new"
+    else:
+        form_action = "https://github.com/settings/apps/new"
+
+    handler = _make_handler(port, state, manifest_attr, holder, form_action)
     server = socketserver.TCPServer(("127.0.0.1", port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    print(f"Opening browser. Click 'Create' as @{args.gh_user}.", file=sys.stderr)
+    if args.org:
+        print(f"Opening browser. Click 'Create' as @{args.gh_user} (App will be owned by org @{args.org}).", file=sys.stderr)
+    else:
+        print(f"Opening browser. Click 'Create' as @{args.gh_user}.", file=sys.stderr)
     webbrowser.open(f"http://localhost:{port}/")
 
     deadline = time.time() + 300
