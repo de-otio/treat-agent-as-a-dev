@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "taaad"
+version = "0.5.0"
+description = "Per-developer GitHub App identity for AI coding agents"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "de-otio" }]
+dependencies = [
+    "pyjwt>=2.8",
+    "cryptography>=42",
+    "requests>=2.31",
+    "keyring>=24",
+    "platformdirs>=4",
+    "tomli-w>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/de-otio/treat-agent-as-a-dev"
+Issues = "https://github.com/de-otio/treat-agent-as-a-dev/security/advisories/new"
+
+[project.scripts]
+taaad = "taaad.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/taaad"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/taaad",
+    "RUNBOOK.md",
+    "README.md",
+    "SECURITY.md",
+    "LICENSE",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
