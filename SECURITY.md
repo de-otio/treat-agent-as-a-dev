@@ -91,6 +91,19 @@ Limits that remain with the helper:
   a *different* narrowing always prompts again.
 - **Registration and rotation pass the PEM through Python once**, on
   its way from the downloaded file into the helper.
+- **The first request to GitHub is sent before any prompt.** To look up
+  an installation, and for `installation`, `app-meta` and
+  `installations`, the helper sends a short-lived App JWT (valid 120
+  seconds) before asking for presence. The helper's connection uses the
+  system proxy settings and trust store. A person with administrator
+  rights on the machine who installs a proxy and a trusted root
+  certificate could capture that JWT and mint installation tokens with
+  no prompt. The private key is not exposed by this. We accept it for
+  now: it needs administrator rights, and pinning the connection to
+  Apple's system roots would break the helper behind corporate
+  TLS-inspection proxies. Those three read commands can also be run by
+  any local process without a prompt, and reveal installation accounts
+  and permissions.
 
 The threat model assumes the user's account is trusted. If that
 assumption fails, the PEM is recoverable by any process the
