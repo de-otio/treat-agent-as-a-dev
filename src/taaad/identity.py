@@ -9,7 +9,7 @@ import os
 import sys
 from pathlib import Path
 
-from taaad import config, git, github, secrets
+from taaad import config, git, keystore, signer
 
 
 def resolve_slug(explicit: str | None = None) -> str:
@@ -45,11 +45,10 @@ def mint_token(slug: str) -> tuple[str, config.AppConfig]:
             f"app {slug} has no install_id yet — run "
             f"`taaad install {slug} --account <owner>`."
         )
-    pem = secrets.get_pem(cfg.keychain_key)
     try:
-        token = github.installation_token(cfg.app_id, cfg.install_id, pem)
-    finally:
-        pem = None  # noqa: F841
+        token = keystore.mint(cfg)
+    except signer.SignerError as e:
+        raise SystemExit(f"taaad-signer: {e}") from e
     return token, cfg
 
 

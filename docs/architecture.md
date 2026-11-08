@@ -24,8 +24,8 @@ For contributors and reviewers. End users live in
 │        │      │              │   │ <slug>-pem │     │ - install token  │
 └───┬────┘      └──────┬───────┘   └────────────┘     └──────────────────┘
     │                  │                ▲
-    │                  │                │ keyring (per-user;
-    │                  │                │ macOS scoped via -T ACL)
+    │                  │                │ keyring (per-user; macOS
+    │                  │                │ item trusts the interpreter)
     │                  ▼                │
     │   ┌──────────────────────────┐    │
     │   │ <config-dir>/taaad/      │────┘  reads PEM
@@ -46,7 +46,8 @@ For contributors and reviewers. End users live in
 |-------------------------------------------------|----------------|
 | [`src/taaad/cli.py`](../src/taaad/cli.py)         | argparse wiring; lazy-imports each subcommand |
 | [`src/taaad/config.py`](../src/taaad/config.py)   | config-dir layout, app TOML I/O, used-by registry, allowlist defaults |
-| [`src/taaad/secrets.py`](../src/taaad/secrets.py) | `keyring` wrapper; refuses Plaintext/Null/Fail backends; macOS ACL helper |
+| [`src/taaad/secrets.py`](../src/taaad/secrets.py) | `keyring` wrapper; refuses Plaintext/Null/Fail backends; reads the macOS item's ACL for `doctor` |
+| [`src/taaad/acl.py`](../src/taaad/acl.py)         | pure parser and allowlist verdict for a macOS keychain item's access list |
 | [`src/taaad/github.py`](../src/taaad/github.py)   | App-API client (manifest conversion, JWT, installations, tokens) |
 | [`src/taaad/git.py`](../src/taaad/git.py)         | git config and remote-URL helpers (subprocess, argv lists only) |
 | [`src/taaad/identity.py`](../src/taaad/identity.py) | resolve slug from explicit / repo / global config; mint token; build env |
@@ -70,11 +71,14 @@ For contributors and reviewers. End users live in
                           memory only    memory only   at rest
 ```
 
-The agent has no path to the PEM that doesn't go through `taaad`,
-which is the only sanctioned consumer. RUNBOOK Operating Rule 1
-encodes this as a behaviour rule (don't echo, don't pipe, don't
-encode); the architecture encodes it structurally (no command
-prints PEM bytes).
+`taaad` is the only *sanctioned* consumer of the PEM. RUNBOOK
+Operating Rule 1 encodes this as a behaviour rule (don't echo, don't
+pipe, don't encode); no `taaad` command prints PEM bytes. The OS
+store does not enforce it, though: the macOS Keychain item trusts the
+Python interpreter, and Linux/Windows stores trust the whole user
+session, so a process that can run Python as the user can read the
+PEM without going through `taaad` (SECURITY.md, "Known
+ambient-authority limitations"). `taaad doctor` reports the macOS case.
 
 ## State
 

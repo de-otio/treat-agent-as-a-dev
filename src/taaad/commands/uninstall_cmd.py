@@ -11,7 +11,7 @@ import argparse
 import shutil
 import sys
 
-from taaad import config, secrets
+from taaad import config, keystore, signer
 
 
 def run(args: argparse.Namespace) -> int:
@@ -36,8 +36,12 @@ def run(args: argparse.Namespace) -> int:
 
     if args.purge:
         for a in apps:
-            secrets.delete_pem(a.keychain_key)
-            print(f"deleted keychain entry: {a.keychain_key}", file=sys.stderr)
+            try:
+                keystore.delete(a)
+            except signer.SignerError as e:
+                print(f"could not delete the key for {a.slug}: {e}\nconfig dir kept.", file=sys.stderr)
+                return 1
+            print(f"deleted key: {a.slug}", file=sys.stderr)
 
     cfg_dir = config.config_dir()
     if cfg_dir.exists():

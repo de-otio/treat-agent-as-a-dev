@@ -1,0 +1,48 @@
+keychain: "/Users/testuser/Library/Keychains/login.keychain-db"
+version: 512
+class: "genp"
+attributes:
+    0x00000007 <blob>="some-other-service"
+    0x00000008 <blob>=<NULL>
+    "acct"<blob>="testuser"
+    "cdat"<timedate>=0x32303236303530373130313435355A00  "20260507101455Z\000"
+    "crtr"<uint32>=<NULL>
+    "cusi"<sint32>=<NULL>
+    "desc"<blob>=<NULL>
+    "gena"<blob>=<NULL>
+    "icmt"<blob>=<NULL>
+    "invi"<sint32>=<NULL>
+    "mdat"<timedate>=0x32303236303530373130313435355A00  "20260507101455Z\000"
+    "nega"<sint32>=<NULL>
+    "prot"<blob>=<NULL>
+    "scrp"<sint32>=<NULL>
+    "svce"<blob>="some-other-service"
+    "type"<uint32>=<NULL>
+access: 5 entries
+    entry 0:
+        authorizations (1): encrypt
+        don't-require-password
+        description: some-other-service
+        applications: <null>
+    entry 1:
+        authorizations (6): decrypt derive export_clear export_wrapped mac sign
+        don't-require-password
+        description: some-other-service
+        applications (1):
+            0: /usr/bin/security (OK)
+                requirement: identifier "com.apple.security" and anchor apple
+    entry 2:
+        authorizations (1): integrity
+        don't-require-password
+        description: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+        applications: <null>
+    entry 3:
+        authorizations (1): partition_id
+        don't-require-password
+        description: apple-tool:
+        applications: <null>
+    entry 4:
+        authorizations (1): change_acl
+        don't-require-password
+        description: some-other-service
+        applications (0):

@@ -17,7 +17,7 @@ import datetime as dt
 import sys
 import time
 
-from taaad import config, github, secrets
+from taaad import config, keystore, signer
 
 
 def _ensure_app_config(slug: str, app_id_hint: int | None) -> config.AppConfig:
@@ -35,7 +35,7 @@ def _ensure_app_config(slug: str, app_id_hint: int | None) -> config.AppConfig:
         return config.read_app(slug)
     except FileNotFoundError:
         pass
-    if not secrets.has_pem(keychain_key):
+    if not keystore.has_key_for(slug, keychain_key):
         raise SystemExit(
             f"no app config and no PEM at keychain key {keychain_key!r}. "
             f"Run `taaad register` first."
@@ -57,12 +57,20 @@ def _ensure_app_config(slug: str, app_id_hint: int | None) -> config.AppConfig:
     )
 
 
+def match_installation(installations: list[dict], account: str) -> dict | None:
+    """Pure: the installation whose account login is `account`, if any."""
+    for inst in installations:
+        acct = inst.get("account")
+        if isinstance(acct, dict) and acct.get("login") == account:
+            return inst
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     slug = args.slug
     config.ensure_dirs()
     cfg = _ensure_app_config(slug, args.app_id)
 
-    pem = secrets.get_pem(cfg.keychain_key)
     print(
         f"polling for installation under @{args.account} (timeout {args.timeout}s)…",
         file=sys.stderr,
@@ -71,11 +79,14 @@ def run(args: argparse.Namespace) -> int:
     deadline = time.time() + args.timeout
     found = None
     while time.time() < deadline:
-        found = github.find_installation(cfg.app_id, pem, args.account)
+        try:
+            found = match_installation(keystore.installations(cfg), args.account)
+        except signer.SignerError as e:
+            print(f"taaad-signer: {e}", file=sys.stderr)
+            return 1
         if found:
             break
         time.sleep(5)
-    pem = None  # discard
 
     if not found:
         print(

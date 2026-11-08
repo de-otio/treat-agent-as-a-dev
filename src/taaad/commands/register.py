@@ -24,7 +24,7 @@ import time
 import urllib.parse
 import webbrowser
 
-from taaad import config, github, paths, secrets
+from taaad import config, github, keystore, secrets, signer
 
 PERMISSIONS = {
     "contents": "write",
@@ -95,6 +95,31 @@ def _make_handler(port: int, state: str, manifest_attr: str, holder: dict, form_
     return H
 
 
+def store_failure_message(slug: str, e: Exception) -> str:
+    return (
+        f"taaad-signer could not store the key: {e}\n"
+        f"The App {slug} was created. The private key generated during "
+        f"registration is live on GitHub but held by nobody: delete it at "
+        f"https://github.com/settings/apps/{slug} (Private keys, the key dated today). "
+        f"Then generate a new private key there and run "
+        f"`taaad rotate {slug} --pem-file <path>`."
+    )
+
+
+def _write_config(slug: str, app_id: int, keychain_key: str) -> config.AppConfig:
+    cfg = config.AppConfig(
+        schema_version=config.SCHEMA_VERSION,
+        slug=slug,
+        app_id=app_id,
+        install_id=None,
+        account=None,
+        keychain_key=keychain_key,
+        created_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
+    )
+    config.write_app(cfg)
+    return cfg
+
+
 def run(args: argparse.Namespace) -> int:
     if args.name:
         requested_name = args.name
@@ -155,24 +180,25 @@ def run(args: argparse.Namespace) -> int:
     # keyring write. Note: CPython strings are immutable, so this does
     # not zero the bytes — see SECURITY.md "Residual risks".
     pem = app.pop("pem")
-    secrets.set_pem(keychain_key, pem)
-    del pem
     del app
+    try:
+        where = keystore.store_new(slug, app_id, pem, keychain_key)
+    except signer.SignerError as e:
+        # No keyring fallback. The App exists on github.com, so keep the
+        # config: after generating a new private key in the App settings,
+        # `taaad rotate` can import it.
+        del pem
+        _write_config(slug, app_id, keychain_key)
+        print(store_failure_message(slug, e), file=sys.stderr)
+        return 1
+    del pem
 
-    exe = paths.taaad_executable()
-    paths.assert_path_safe(exe)
-    secrets.restrict_macos_acl(keychain_key, exe)
+    if where == "keyring":
+        notice = secrets.weak_acl_notice()
+        if notice:
+            print(notice, file=sys.stderr)
 
-    cfg = config.AppConfig(
-        schema_version=config.SCHEMA_VERSION,
-        slug=slug,
-        app_id=app_id,
-        install_id=None,
-        account=None,
-        keychain_key=keychain_key,
-        created_at=dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-    )
-    config.write_app(cfg)
+    _write_config(slug, app_id, keychain_key)
 
     install_url = f"https://github.com/apps/{slug}/installations/new"
     print(f"\n✅ App created.\n")

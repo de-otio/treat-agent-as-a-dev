@@ -39,6 +39,17 @@ def _bypass_path_safety(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_signer(monkeypatch, tmp_path):
+    """Point the signer boundary at a path that does not exist, so no test can reach a real
+    `taaad-signer` installed on this machine (it would prompt for Touch ID and touch real keys).
+    Tests that need a helper install `tests.fake_signer` over this, inside the test."""
+    from taaad import signer
+    absent = tmp_path / "no-signer" / "taaad-signer.app"
+    monkeypatch.setattr(signer, "SIGNER_APP", absent)
+    monkeypatch.setattr(signer, "SIGNER_PATH", absent / "Contents" / "MacOS" / "taaad-signer")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_keyring(monkeypatch):
     """Force the in-memory keyring for the test suite so tests don't
     touch the real macOS Keychain / Linux Secret Service / Windows

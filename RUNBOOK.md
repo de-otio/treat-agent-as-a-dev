@@ -170,6 +170,27 @@ pipx install git+https://github.com/de-otio/treat-agent-as-a-dev@<tag>
 Always pin to a tag (see [README.md → Pinning](README.md#pinning)).
 Verify: `taaad --version`.
 
+**macOS: install `taaad-signer` before registering an App.** Without it,
+the App's private key goes into a Keychain item that any Python script you
+run can read (SECURITY.md, "macOS keychain access list"). With it, the key
+lives in the signed helper and every new token needs Touch ID. Download
+`taaad-signer-<version>.pkg` from the same GitHub release as your taaad
+tag, verify it, and install it:
+
+```sh
+shasum -a 256 taaad-signer-<version>.pkg             # equals the SHA-256 in the release notes
+pkgutil --check-signature taaad-signer-<version>.pkg  # Developer ID Installer: Richard Myers (U26DY5A9DU)
+spctl --assess --type install -vv taaad-signer-<version>.pkg   # accepted, Notarized Developer ID
+sudo installer -pkg taaad-signer-<version>.pkg -target /
+taaad doctor        # the helper is reported installed and verified
+```
+
+Uninstalling and building it yourself: [signer/RELEASING.md](signer/RELEASING.md).
+
+The only prompt taaad should ever cause is **Touch ID from
+"taaad-signer"** naming a mint, import, replacement or deletion that you
+started. Deny any Keychain dialog that asks to use a `github-app-*` item.
+
 ## Step 1 — Register the App via manifest flow 🛑
 
 ```sh
@@ -217,8 +238,11 @@ The command:
    under key `github-app-<APP_SLUG>-pem`, where `APP_SLUG` is the
    slug GitHub returned (may differ from the requested name if
    GitHub appended a disambiguator).
-7. On macOS, restricts the keychain item ACL to the `taaad` binary
-   so other processes prompt the user before reading the PEM.
+7. On macOS, prints a note: the Keychain item trusts the Python
+   interpreter that stored it, so any Python script the user runs
+   can read the PEM without a prompt. `taaad doctor` reports this
+   (SECURITY.md, "macOS keychain access list"). It is a known
+   limitation until a signed helper holds the key.
 8. Writes `<config-dir>/apps/<APP_SLUG>.toml` with App ID, slug,
    and keychain key. No secrets in this file.
 9. Prints `slug`, `app_id`, install URL, and the next-step command.
@@ -508,6 +532,16 @@ Rotation flow (3 minutes, two human checkpoints):
    the old key by date). This invalidates any token already
    minted from the old PEM.
 ```
+
+**macOS with `taaad-signer` installed:** `taaad rotate` imports the new
+key into the helper (Touch ID: "replace/import the GitHub App private key
+for <APP_SLUG>"). It then mints a test token (Touch ID again), deletes the
+old Python-readable Keychain item if one exists, and only then shreds the
+file. This is also **how an existing App moves to the helper**: rotate it
+once after installing the helper, then revoke the old key. Every key stored
+before the helper existed was readable by any Python script, so don't copy
+it across. `taaad doctor` should then show `[ok] key held by taaad-signer`
+and no legacy item.
 
 ## Step 10 — Teardown
 

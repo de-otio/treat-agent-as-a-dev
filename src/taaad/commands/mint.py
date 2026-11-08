@@ -12,7 +12,7 @@ import json
 import re
 import sys
 
-from taaad import config, github, secrets
+from taaad import config, github, keystore, signer
 from taaad.slug import validate as validate_slug
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
@@ -22,8 +22,22 @@ _READ_SET = ("metadata", "contents", "pull_requests", "issues")
 _LEVEL = {"read": 0, "write": 1, "admin": 2}
 
 
-def _err(msg: str) -> int:
+# Exit codes (SPEC section 9, item 14). Stdout is empty on every one but 0.
+EXIT_TTY = 2
+EXIT_RATE_LIMITED = 3
+EXIT_DENIED = 4
+
+
+def _err(msg: str, code: int = 1) -> int:
     print(f"error: taaad mint: {msg}", file=sys.stderr)
+    return code
+
+
+def exit_code_for(e: signer.SignerError) -> int:
+    if isinstance(e, signer.RateLimited):
+        return EXIT_RATE_LIMITED
+    if isinstance(e, signer.PresenceDenied):
+        return EXIT_DENIED
     return 1
 
 
@@ -70,12 +84,7 @@ def run(args: argparse.Namespace) -> int:
         cfg = config.read_app(slug)
         if cfg.install_id is None:
             return _err(f"app {slug} has no install_id yet")
-        pem = secrets.get_pem(cfg.keychain_key)
-        try:
-            jwt_token = github.app_jwt(cfg.app_id, pem)
-        finally:
-            pem = None  # noqa: F841
-        inst = github.get_installation(jwt_token, cfg.install_id)
+        inst = keystore.installation(cfg)
         login = (inst.get("account") or {}).get("login")
         granted = inst.get("permissions") or {}
         if not isinstance(login, str) or not login:
@@ -90,29 +99,31 @@ def run(args: argparse.Namespace) -> int:
         except ValueError as e:
             return _err(str(e))
 
-        resp = github.create_scoped_token(jwt_token, cfg.install_id, [repo], body)
-        token = resp.get("token") if isinstance(resp, dict) else ""
-        names = [r.get("name") for r in resp.get("repositories") or []]
+        minted = keystore.mint_scoped(cfg, repo, body)
+        token = minted.token
+        names = list(minted.repositories)
         if not isinstance(token, str) or not token:
             return _err("response carried no token")
         if len(names) != 1 or not isinstance(names[0], str) or (
             names[0].casefold() != repo.casefold()
         ):
             return _err("response repositories are not exactly the requested one; refusing")
-        got = resp.get("permissions") or {}
+        got = minted.permissions or {}
         if not isinstance(got, dict) or any(
             _LEVEL.get(v, 99) > _LEVEL.get(body.get(k, ""), -1) for k, v in got.items()
         ):
             return _err("response permissions exceed the request; refusing")
         out = {
             "token": token,
-            "expiresAt": resp.get("expires_at"),
+            "expiresAt": minted.expires_at,
             "installationAccount": login,
             "installationId": cfg.install_id,
             "appId": cfg.app_id,
             "repositories": names,
             "permissions": got,
         }
+    except signer.SignerError as e:
+        return _err(github.redact(f"taaad-signer: {e}", extra=(token,)), exit_code_for(e))
     except (FileNotFoundError, RuntimeError, KeyError, TypeError, AttributeError,
             ValueError) as e:
         # GitHubError is a RuntimeError; its text is already redacted.
@@ -128,4 +139,4 @@ def _refuse_tty() -> int:
         "(there is no --force).",
         file=sys.stderr,
     )
-    return 2
+    return EXIT_TTY

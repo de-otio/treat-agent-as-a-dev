@@ -6,7 +6,7 @@ import stat
 import sys
 from pathlib import Path
 
-from taaad import config, github, paths, secrets
+from taaad import acl, config, github, keystore, paths, secrets, signer
 
 
 def _ok(msg: str) -> None:
@@ -49,6 +49,84 @@ def _check_keyring() -> int:
         return 1
 
 
+def _check_signer() -> int:
+    """macOS: the helper must be installed and carry the expected signature."""
+    if sys.platform != "darwin":
+        return 0
+    print(f"taaad-signer: {signer.SIGNER_APP}")
+    reason = signer.verify_installed()
+    if reason is None:
+        _ok("taaad-signer is installed and satisfies its designated requirement")
+        return 0
+    _err(f"taaad-signer: {reason}")
+    return 1
+
+
+def _check_app_via_signer(a: config.AppConfig) -> int:
+    """The key is held by the helper: check for a leftover legacy copy and
+    ask GitHub about the App with `app-meta` (no prompt, no mint)."""
+    fails = 0
+    _ok("key held by taaad-signer")
+    try:
+        legacy = secrets.has_pem(a.keychain_key)
+    except Exception as e:  # noqa: BLE001
+        _err(f"could not check for a legacy keychain copy: {e}")
+        fails += 1
+        legacy = False
+    if legacy:
+        _err(
+            f"legacy copy still readable by Python at {a.keychain_key!r}; "
+            f"`taaad rotate` removes it"
+        )
+        fails += 1
+    try:
+        meta = signer.app_meta(a.slug)
+    except signer.SignerError as e:
+        _err(f"App check failed: {e}")
+        return fails + 1
+    if meta.get("public"):
+        _err(
+            f"App is PUBLIC — Operating Rule 8 says it must stay private. Toggle off at "
+            f"https://github.com/settings/apps/{a.slug}/edit "
+            f"(\"Where can this GitHub App be installed?\")"
+        )
+        fails += 1
+    else:
+        _ok("App is private (Operating Rule 8)")
+    if a.install_id is None:
+        _warn("install_id is unknown — run `taaad install`")
+    return fails
+
+
+def _check_pem_acl(a: config.AppConfig) -> int:
+    """macOS: fail unless only the signed taaad helper may read the PEM.
+
+    Reads the item's access list with `security dump-keychain -a`
+    (never `-d`; no secret is read). Until the helper ships, every
+    macOS item fails this check: the keychain trusts the Python
+    interpreter that stored the key. See SECURITY.md.
+    """
+    if sys.platform != "darwin":
+        return 0
+    try:
+        findings = acl.verdict(secrets.read_acl(a.keychain_key))
+    except RuntimeError as e:
+        # Fail closed: an unreadable list is not a verified one.
+        _err(f"could not read the keychain access list: {e}")
+        return 1
+    if not findings:
+        _ok("keychain access list admits only the signed taaad helper")
+        return 0
+    for f in findings:
+        _err(f"keychain access list: {f.reason}")
+    print(
+        "         Any program listed above can read this App's private key "
+        "without a prompt. See SECURITY.md, \"macOS keychain access list\".",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _check_path() -> int:
     p = paths.taaad_executable()
     print(f"taaad path: {p}")
@@ -75,10 +153,19 @@ def _check_env() -> int:
 def _check_app(a: config.AppConfig) -> int:
     fails = 0
     print(f"\napp: {a.slug}")
+    if keystore.signer_installed():
+        try:
+            held = signer.has_key(a.slug)
+        except signer.SignerError as e:
+            _err(f"could not ask taaad-signer about this App: {e}")
+            return 1
+        if held:
+            return _check_app_via_signer(a)
     if not secrets.has_pem(a.keychain_key):
         _err(f"PEM missing at keychain key {a.keychain_key!r}")
         return 1
     _ok(f"PEM present at {a.keychain_key}")
+    fails += _check_pem_acl(a)
 
     try:
         pem = secrets.get_pem(a.keychain_key)
@@ -165,6 +252,7 @@ def _check_repo_context() -> int:
 def run(args: argparse.Namespace) -> int:
     fails = 0
     fails += _check_dirs()
+    fails += _check_signer()
     fails += _check_keyring()
     fails += _check_path()
     fails += _check_env()
