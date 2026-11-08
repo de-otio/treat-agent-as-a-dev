@@ -6,6 +6,10 @@ Adds `taaad-signer`, a small signed and notarised macOS helper that holds the
 App private keys, so that no script running as you can read them (see v0.5.6
 for why the old keychain item could not guarantee that).
 
+**There is no v0.5.6 release.** It was never tagged on its own; everything
+listed under "v0.5.6" below (the corrected macOS security claims, the new
+`doctor` check, `taaad mint`) ships in this version.
+
 - **`taaad-signer` (macOS, optional).** The helper keeps each App's PEM in
   the data-protection keychain under its own access group. Other programs,
   including the Python interpreter and `security`, cannot see the item at
