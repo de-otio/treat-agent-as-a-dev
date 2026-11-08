@@ -447,3 +447,9 @@ def test_run_checks_the_path_on_every_call(fake_signer, monkeypatch):
     signer.status("a")
     signer.status("a")
     assert seen == [fake_signer.path, fake_signer.path]
+
+
+def test_suite_never_reaches_a_real_installed_helper():
+    """The autouse guard in conftest.py must keep the boundary away from /Library."""
+    assert "/Library/" not in str(signer.SIGNER_PATH)
+    assert not signer.available()

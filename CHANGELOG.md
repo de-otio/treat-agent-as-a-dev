@@ -1,5 +1,39 @@
 # Changelog
 
+## v0.6.0
+
+Adds `taaad-signer`, a small signed and notarised macOS helper that holds the
+App private keys, so that no script running as you can read them (see v0.5.6
+for why the old keychain item could not guarantee that).
+
+- **`taaad-signer` (macOS, optional).** The helper keeps each App's PEM in
+  the data-protection keychain under its own access group. Other programs,
+  including the Python interpreter and `security`, cannot see the item at
+  all. The helper signs the GitHub App JWT itself; no mint path returns the
+  key. Install it from the notarised `.pkg` on the GitHub release (RUNBOOK
+  Step 0, `signer/RELEASING.md`).
+- **Touch ID or password before each fresh token.** Each mint that is not
+  served from the helper's token cache asks for presence, with the App and
+  the narrowed permissions in the prompt. A token cached by the helper is
+  reused until five minutes before it expires, with no new prompt. Prompts
+  are rate limited.
+- **Routing.** `taaad register`, `rotate`, `mint`, `doctor`, `apps` and
+  `uninstall` use the helper when it is installed and never fall back to the
+  old keyring after a helper error. Without the helper, behaviour is as in
+  v0.5.6.
+- **`taaad mint` exit codes:** 2 usage, 3 key not found, 4 presence denied,
+  1 internal, in addition to the existing ones.
+- **Migration:** rotate each App through the helper (RUNBOOK Step 9). A key
+  that was in the old keychain item stays readable by whatever the access
+  list in `taaad doctor` shows until you rotate it.
+- **Limits, stated in SECURITY.md:** the Developer ID signing identity is the
+  root of trust; a Touch ID prompt is not proof of who asked; one approval
+  covers the cached token; the PEM passes through Python once when you
+  register or rotate.
+- Build and release: `signer/scripts/{build,install,package}.sh`; the Swift
+  core has 69 unit tests, the Python side 244 in total. The test suite can no
+  longer reach a helper installed on the developer's machine.
+
 ## v0.5.6
 
 Corrects a false security claim about the macOS Keychain and makes
