@@ -25,8 +25,11 @@ listed under "v0.5.6" below (the corrected macOS security claims, the new
   `uninstall` use the helper when it is installed and never fall back to the
   old keyring after a helper error. Without the helper, behaviour is as in
   v0.5.6.
-- **`taaad mint` exit codes:** 2 usage, 3 key not found, 4 presence denied,
-  1 internal, in addition to the existing ones.
+- **`taaad mint` exit codes:** 0 ok, 2 refused (stdout is a terminal), 3 rate
+  limited, 4 presence denied, 1 anything else (including key not found and
+  GitHub errors). The helper's own exit codes are a separate table (SPEC
+  section 4). *Corrected after release: the v0.6.0 tag lists 3 as "key not
+  found", which is wrong.*
 - **Migration:** rotate each App through the helper (RUNBOOK Step 9). A key
   that was in the old keychain item stays readable by whatever the access
   list in `taaad doctor` shows until you rotate it.
