@@ -95,6 +95,17 @@ def _make_handler(port: int, state: str, manifest_attr: str, holder: dict, form_
     return H
 
 
+def store_failure_message(slug: str, e: Exception) -> str:
+    return (
+        f"taaad-signer could not store the key: {e}\n"
+        f"The App {slug} was created. The private key generated during "
+        f"registration is live on GitHub but held by nobody: delete it at "
+        f"https://github.com/settings/apps/{slug} (Private keys, the key dated today). "
+        f"Then generate a new private key there and run "
+        f"`taaad rotate {slug} --pem-file <path>`."
+    )
+
+
 def _write_config(slug: str, app_id: int, keychain_key: str) -> config.AppConfig:
     cfg = config.AppConfig(
         schema_version=config.SCHEMA_VERSION,
@@ -178,13 +189,7 @@ def run(args: argparse.Namespace) -> int:
         # `taaad rotate` can import it.
         del pem
         _write_config(slug, app_id, keychain_key)
-        print(
-            f"taaad-signer could not store the key: {e}\n"
-            f"The App {slug} was created. Generate a new private key at "
-            f"https://github.com/settings/apps/{slug}, then run "
-            f"`taaad rotate {slug} --pem-file <path>`.",
-            file=sys.stderr,
-        )
+        print(store_failure_message(slug, e), file=sys.stderr)
         return 1
     del pem
 

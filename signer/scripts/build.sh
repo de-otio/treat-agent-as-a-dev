@@ -3,6 +3,7 @@
 #
 #   TAAAD_SIGN_IDENTITY   codesign identity (SHA-1 or name); required unless --no-sign
 #   TAAAD_SIGNER_PROFILE  path to the Developer ID provisioning profile (not committed); required unless --no-sign
+#   TAAAD_SIGN_KEYCHAIN   optional: the keychain holding the identity (see RELEASING.md); passed as codesign --keychain
 #
 #   scripts/build.sh            build, sign, verify -> build/taaad-signer.app
 #   scripts/build.sh --no-sign  build and assemble an UNSIGNED bundle -> build/unsigned/taaad-signer.app
@@ -123,7 +124,7 @@ if [ "$SIGN" = 0 ]; then
 fi
 
 cp "$TAAAD_SIGNER_PROFILE" "$APP/Contents/embedded.provisionprofile"
-codesign --force --sign "$TAAAD_SIGN_IDENTITY" --identifier "$ID" --options runtime --timestamp \
+codesign ${TAAAD_SIGN_KEYCHAIN:+--keychain "$TAAAD_SIGN_KEYCHAIN"} --force --sign "$TAAAD_SIGN_IDENTITY" --identifier "$ID" --options runtime --timestamp \
   --entitlements "$SIGNER_DIR/Resources/taaad-signer.entitlements" "$APP"
 
 if ! verify_signed_bundle "$APP"; then

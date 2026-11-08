@@ -16,10 +16,12 @@ Rules this module enforces:
 from __future__ import annotations
 
 import json
+import os
 import re
+import stat as statmod
 import subprocess
 import sys
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
@@ -43,6 +45,50 @@ _MAX_MESSAGE = 500
 _LEVELS = {"read": 0, "write": 1, "admin": 2}
 _REPO_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
 _PERM_NAME_RE = re.compile(r"^[a-z][a-z_]{0,63}$")
+
+
+# --- path check -----------------------------------------------------------
+
+_LIBRARY = Path("/Library")
+
+
+def path_problem(path: Path, lstat: Callable[[str], os.stat_result] = os.lstat) -> str | None:
+    """Why `path` may not be run as the helper, or None. Pure over `lstat`.
+
+    The executable must be a regular file (not a symlink: `lstat` never
+    follows links), owned by uid 0, not writable by group or other. Every
+    parent up to and including /Library must be a real directory owned by
+    uid 0 and not writable by group or other.
+    """
+    def unsafe(p: Path, want_dir: bool) -> str | None:
+        try:
+            st = lstat(str(p))
+        except OSError as e:
+            return f"cannot stat {p}: {type(e).__name__}"
+        if want_dir and not statmod.S_ISDIR(st.st_mode):
+            return f"{p} is not a plain directory"
+        if not want_dir and not statmod.S_ISREG(st.st_mode):
+            return f"{p} is not a regular file"
+        if st.st_uid != 0:
+            return f"{p} is not owned by root"
+        if st.st_mode & (statmod.S_IWGRP | statmod.S_IWOTH):
+            return f"{p} is writable by group or other"
+        return None
+
+    problem = unsafe(path, want_dir=False)
+    if problem:
+        return problem
+    for parent in path.parents:
+        problem = unsafe(parent, want_dir=True)
+        if problem:
+            return problem
+        if parent == _LIBRARY:
+            break
+    return None
+
+
+# Injectable: tests cannot create root-owned files.
+PATH_CHECK: Callable[[Path], str | None] = path_problem
 
 
 # --- errors ---------------------------------------------------------------
@@ -169,11 +215,14 @@ def widening_violation(
     requested name at a level no higher than requested. With
     repositories requested, the selection must be `selected` and every
     returned repository (case-insensitively) must have been requested.
-    Nothing requested means nothing to compare.
+    Nothing requested means nothing to compare. `metadata: read` is allowed
+    even unrequested; `metadata` at `write` or above is not.
     """
     if requested_perms:
         for name, level in perms.items():
             want = requested_perms.get(name)
+            if want is None and name == "metadata" and level == "read":
+                continue  # GitHub always adds metadata:read (SPEC section 9, item 10)
             if want is None:
                 return f"token carries unrequested permission {name!r}"
             if level not in _LEVELS or want not in _LEVELS or _LEVELS[level] > _LEVELS[want]:
@@ -228,6 +277,9 @@ def _run(args: list[str], *, stdin: str | None = None) -> bytes:
     """Run the helper; return stdout bytes of a successful (exit 0) run."""
     if not available():
         raise SignerMissing("taaad-signer is not installed")
+    problem = PATH_CHECK(SIGNER_PATH)
+    if problem is not None:
+        raise SignerMissing(f"refusing to run taaad-signer: {problem}")
     timeout = PROMPT_TIMEOUT_S if args[0] in _PROMPTING else QUICK_TIMEOUT_S
     io: dict[str, object] = (
         {"input": stdin.encode()} if stdin is not None else {"stdin": subprocess.DEVNULL}
@@ -382,6 +434,14 @@ def installations(slug: str) -> list[dict]:
     if not isinstance(v, list) or not all(isinstance(i, dict) for i in v):
         raise SignerProtocolError("taaad-signer installations output was not a list of objects")
     return v
+
+
+def installation(slug: str, install_id: int) -> dict:
+    """GET /app/installations/<id> via the helper (no prompt): holds
+    `account.login` and the granted `permissions`."""
+    validate_slug(slug)
+    _check_id(install_id, "install_id")
+    return _object(_run(["installation", slug, str(install_id)]))
 
 
 def delete(slug: str) -> None:

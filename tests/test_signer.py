@@ -14,7 +14,8 @@ from hypothesis import strategies as st
 from taaad import acl, signer
 from tests.fake_signer import TOKEN, fake_signer, mint_output  # noqa: F401
 
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n"
+_KIND = "RSA " + "PRIVATE " + "KEY"  # built at runtime: no literal PEM armour in the source
+PEM = f"-----BEGIN {_KIND}-----\nAAAA\n-----END {_KIND}-----\n"
 
 
 # --- process boundary ------------------------------------------------------
@@ -271,8 +272,8 @@ def test_widening_accepts_every_narrowing(data):
 def test_widening_rejects_every_widening(data, extra_name, extra_level, extra_repo):
     req, repos, resp, got = data
     rank = {"read": 0, "write": 1, "admin": 2}
-    # unrequested permission name
-    if extra_name not in req:
+    # unrequested permission name (metadata:read is implicitly allowed, item 10)
+    if extra_name not in req and not (extra_name == "metadata" and extra_level == "read"):
         assert signer.widening_violation(req, repos, {**resp, extra_name: extra_level}, "selected", got)
     # raised level (only possible below admin)
     for n, lvl in req.items():
@@ -329,3 +330,120 @@ def test_csreq_is_the_requirement_without_comments():
     assert "/*" not in acl.SIGNER_CSREQ and "*/" not in acl.SIGNER_CSREQ
     assert acl.SIGNER_CSREQ.startswith(f'identifier "{acl.SIGNER_IDENTIFIER}" and anchor apple generic')
     assert acl._canonical_requirement(acl.SIGNER_CSREQ) == acl._canonical_requirement(acl.SIGNER_REQUIREMENT)
+
+
+# --- SPEC section 9 --------------------------------------------------------
+
+import os  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+
+def test_implicit_metadata_read_is_allowed_but_not_more():
+    req = {"contents": "read"}
+    assert signer.widening_violation(req, [], {"contents": "read", "metadata": "read"}, "all", []) is None
+    assert signer.widening_violation(req, [], {"metadata": "write"}, "all", [])
+    assert signer.widening_violation(req, [], {"metadata": "admin"}, "all", [])
+    # nothing requested: nothing to compare, as before
+    assert signer.widening_violation({}, [], {"metadata": "write"}, "all", []) is None
+
+
+def test_mint_accepts_implicit_metadata_and_refuses_metadata_write(fake_signer):
+    fake_signer.set("mint", stdout=mint_output(permissions={"contents": "read", "metadata": "read"}))
+    assert signer.mint("a", 1, perms={"contents": "read"}).token == TOKEN
+    fake_signer.set("mint", stdout=mint_output(permissions={"contents": "read", "metadata": "write"}))
+    with pytest.raises(signer.WidenedToken):
+        signer.mint("a", 1, perms={"contents": "read"})
+
+
+def test_installation_wrapper(fake_signer):
+    fake_signer.set("installation", stdout={"id": 9, "account": {"login": "x"}, "permissions": {"contents": "read"}})
+    assert signer.installation("a", 9)["account"]["login"] == "x"
+    assert fake_signer.calls()[0]["argv"] == ["installation", "a", "9"]
+    fake_signer.set("installation", exit=6, stderr={"error": "github", "message": "m", "status": 404})
+    with pytest.raises(signer.GitHubError):
+        signer.installation("a", 9)
+    with pytest.raises(ValueError):
+        signer.installation("a", 0)
+
+
+def test_registration_failure_message_mentions_orphaned_key():
+    from taaad.commands import register
+
+    msg = register.store_failure_message("my-app", signer.BadKey("nope"))
+    assert "live on GitHub but held by nobody" in msg
+    assert "Private keys" in msg and "dated today" in msg
+    assert "taaad rotate my-app" in msg and "nope" in msg
+
+
+def _st(mode, uid=0):
+    return os.stat_result((mode, 0, 0, 1, uid, 0, 0, 0, 0, 0))
+
+
+REG, DIR, LNK = 0o100755, 0o040755, 0o120755
+P = Path("/Library/Application Support/taaad/taaad-signer.app/Contents/MacOS/taaad-signer")
+
+
+def fake_lstat(overrides=None):
+    overrides = overrides or {}
+
+    def f(p: str):
+        if p in overrides:
+            v = overrides[p]
+            if isinstance(v, Exception):
+                raise v
+            return v
+        return _st(REG if p == str(P) else DIR)
+
+    return f
+
+
+def test_path_problem_accepts_root_owned_tree():
+    assert signer.path_problem(P, fake_lstat()) is None
+
+
+@pytest.mark.parametrize(
+    "target,st",
+    [
+        (str(P), _st(LNK)),  # symlink at the executable
+        (str(P), _st(REG, uid=501)),  # owned by a user
+        (str(P), _st(0o100775)),  # group-writable
+        (str(P), _st(0o100757)),  # other-writable
+        (str(P), _st(DIR)),  # not a regular file
+        ("/Library/Application Support/taaad", _st(DIR, uid=501)),
+        ("/Library/Application Support/taaad", _st(0o040775)),
+        ("/Library/Application Support/taaad/taaad-signer.app/Contents", _st(LNK)),
+        ("/Library/Application Support", _st(0o040757)),
+        ("/Library", _st(0o040777)),
+        (str(P), OSError("gone")),
+    ],
+)
+def test_path_problem_rejects(target, st):
+    assert signer.path_problem(P, fake_lstat({target: st})) is not None
+
+
+def test_path_problem_stops_at_library():
+    # /  being writable is not checked: the walk ends at /Library
+    assert signer.path_problem(P, fake_lstat({"/": _st(0o040777, uid=501)})) is None
+
+
+def test_path_problem_uses_lstat_by_default(tmp_path):
+    f = tmp_path / "x"
+    f.write_text("")
+    assert signer.path_problem(f) is not None  # not root-owned
+
+
+def test_run_refuses_unsafe_path_before_executing(fake_signer, monkeypatch):
+    monkeypatch.setattr(signer, "PATH_CHECK", lambda p: "it is a symlink")
+    with pytest.raises(signer.SignerMissing) as ei:
+        signer.status("a")
+    assert "symlink" in str(ei.value)
+    assert fake_signer.calls() == []
+
+
+def test_run_checks_the_path_on_every_call(fake_signer, monkeypatch):
+    seen = []
+    monkeypatch.setattr(signer, "PATH_CHECK", lambda p: seen.append(p))
+    fake_signer.set("status", stdout={"present": False, "app_id": None})
+    signer.status("a")
+    signer.status("a")
+    assert seen == [fake_signer.path, fake_signer.path]

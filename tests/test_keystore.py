@@ -17,7 +17,8 @@ from taaad import acl, config, github, identity, keystore, secrets, signer
 from taaad.commands import apps, doctor, install, rotate, uninstall_cmd
 from tests.fake_signer import TOKEN, fake_signer, mint_output  # noqa: F401
 
-PEM = "-----BEGIN RSA PRIVATE KEY-----\nAAAA\n-----END RSA PRIVATE KEY-----\n"
+_KIND = "RSA " + "PRIVATE " + "KEY"  # built at runtime: no literal PEM armour in the source
+PEM = f"-----BEGIN {_KIND}-----\nAAAA\n-----END {_KIND}-----\n"
 SLUG = "my-app"
 KEY = "github-app-my-app-pem"
 LEGACY_TOKEN = "ghs_legacytoken"

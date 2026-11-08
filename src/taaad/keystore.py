@@ -12,7 +12,8 @@ rate limit must not turn into a silent read of a Python-readable key.
 from __future__ import annotations
 
 import sys
-from typing import Literal
+from dataclasses import dataclass, field
+from typing import Any, Literal
 
 from taaad import config, github, secrets, signer
 
@@ -41,6 +42,56 @@ def mint(cfg: config.AppConfig) -> str:
         return github.installation_token(cfg.app_id, cfg.install_id, pem)
     finally:
         pem = None  # noqa: F841
+
+
+@dataclass(frozen=True)
+class ScopedToken:
+    """A narrowed token, from either store. Fields are as received and
+    unchecked on the legacy path; the caller validates them."""
+
+    token: str = field(repr=False)
+    expires_at: Any
+    permissions: Any
+    repositories: tuple[Any, ...]
+
+
+def installation(cfg: config.AppConfig) -> dict:
+    """`GET /app/installations/<id>`: `account.login` and granted permissions."""
+    if cfg.install_id is None:
+        raise ValueError(f"app {cfg.slug} has no install_id")
+    if uses_signer(cfg.slug):
+        return signer.installation(cfg.slug, cfg.install_id)
+    pem = secrets.get_pem(cfg.keychain_key)
+    try:
+        jwt_token = github.app_jwt(cfg.app_id, pem)
+    finally:
+        pem = None  # noqa: F841
+    return github.get_installation(jwt_token, cfg.install_id)
+
+
+def mint_scoped(cfg: config.AppConfig, repo: str, perms: dict[str, str]) -> ScopedToken:
+    """Mint a token for one repository and the given permissions."""
+    if cfg.install_id is None:
+        raise ValueError(f"app {cfg.slug} has no install_id")
+    if uses_signer(cfg.slug):
+        t = signer.mint(cfg.slug, cfg.install_id, repos=[repo], perms=perms)
+        return ScopedToken(t.token, t.expires_at, dict(t.permissions), t.repositories)
+    pem = secrets.get_pem(cfg.keychain_key)
+    try:
+        jwt_token = github.app_jwt(cfg.app_id, pem)
+    finally:
+        pem = None  # noqa: F841
+    resp = github.create_scoped_token(jwt_token, cfg.install_id, [repo], perms)
+    if not isinstance(resp, dict):
+        resp = {}
+    token = resp.get("token")
+    names = tuple(r.get("name") for r in resp.get("repositories") or [])
+    return ScopedToken(
+        token if isinstance(token, str) else "",
+        resp.get("expires_at"),
+        resp.get("permissions") or {},
+        names,
+    )
 
 
 def app_meta(cfg: config.AppConfig) -> dict:

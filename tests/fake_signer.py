@@ -96,5 +96,7 @@ def fake_signer(tmp_path, monkeypatch) -> FakeSigner:
     fake = make(tmp_path / "signer")
     monkeypatch.setattr(signer, "SIGNER_PATH", fake.path)
     monkeypatch.setattr(signer, "SIGNER_APP", fake.app)
+    # A test cannot create root-owned files; path_problem has its own tests.
+    monkeypatch.setattr(signer, "PATH_CHECK", lambda _p: None)
     monkeypatch.setattr(sys, "platform", "darwin")
     return fake

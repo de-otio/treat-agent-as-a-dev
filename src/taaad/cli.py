@@ -60,7 +60,19 @@ def _add_env(sub: argparse._SubParsersAction) -> None:
 
 
 def _add_mint(sub: argparse._SubParsersAction) -> None:
-    p = sub.add_parser("mint", help="mint a one-repository, one-permission-class token as JSON")
+    p = sub.add_parser(
+        "mint",
+        help="mint a one-repository, one-permission-class token as JSON",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "exit codes (stdout is empty on every non-zero exit):\n"
+            "  0  token printed\n"
+            "  1  any other refusal or error\n"
+            "  2  refused: stdout is a TTY\n"
+            "  3  rate-limited by taaad-signer (too many presence prompts)\n"
+            "  4  presence prompt cancelled or denied"
+        ),
+    )
     p.add_argument("--app", required=True, help="App slug")
     p.add_argument("--repo", required=True, help="<owner>/<repo>")
     p.add_argument("--permissions", required=True,
