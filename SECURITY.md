@@ -34,15 +34,43 @@ Only the most recent tagged release is supported.
 
 On Linux Secret Service and Windows Credential Manager, **any
 process running as the same user can read any secret the user has
-stored** — there is no per-binary ACL. macOS Keychain *does* offer
-per-item ACLs; `taaad register` invokes
-`security add-generic-password -T <abs-taaad>` to scope the entry
-to the `taaad` binary, so other binaries trigger an interactive
-prompt before reading.
+stored** — there is no per-binary ACL.
+
+### macOS keychain access list
+
+macOS is not better today, only different. The Keychain decides who
+may read an item by the *executable* that asks, and python-keyring
+stores the PEM from the Python interpreter. The item therefore
+trusts that interpreter — for taaad installed with pipx, a Homebrew
+`python3` — and **every script it runs reads the PEM without a
+prompt**. An agent session running as the user can run that
+interpreter, so it can read the App's private key, mint
+installation tokens for every repository the App is installed on,
+and copy the key off the machine.
+
+Releases before v0.5.6 ran `security add-generic-password -T
+<taaad>` after storing the key and described that as scoping the
+entry to taaad. It did not: `-T` adds an application to the list
+rather than replacing it, the interpreter stayed on the list, and
+the `taaad` launcher is a Python script, so the Keychain never sees
+it as the reader. v0.5.6 removes that step. An item can also
+accumulate trust over time: clicking *Always Allow* on a Keychain
+prompt (for example for `/usr/bin/security`) adds that program for
+good, and a Homebrew Python upgrade shows a new prompt whose
+*Always Allow* adds the new interpreter as well.
+
+`taaad doctor` reads each item's access list (`security
+dump-keychain -a`; it never decrypts or prints a secret) and fails
+unless the only program allowed to read the PEM is the signed taaad
+helper. That helper is not shipped yet, so **on macOS `doctor`
+currently reports this finding for every App**. Treat any PEM stored
+before the helper exists as readable by any program the output
+lists: rotate it (RUNBOOK Step 9) once the helper is available, and
+earlier if the list includes `/usr/bin/security`.
 
 The threat model assumes the user's account is trusted. If that
-assumption fails, the PEM is recoverable on Linux and Windows by
-any process the attacker controls under the same user.
+assumption fails, the PEM is recoverable by any process the
+attacker controls under the same user.
 
 ## Token-leakage classes to watch
 

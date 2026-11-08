@@ -24,7 +24,7 @@ import time
 import urllib.parse
 import webbrowser
 
-from taaad import config, github, paths, secrets
+from taaad import config, github, secrets
 
 PERMISSIONS = {
     "contents": "write",
@@ -159,9 +159,9 @@ def run(args: argparse.Namespace) -> int:
     del pem
     del app
 
-    exe = paths.taaad_executable()
-    paths.assert_path_safe(exe)
-    secrets.restrict_macos_acl(keychain_key, exe)
+    notice = secrets.weak_acl_notice()
+    if notice:
+        print(notice, file=sys.stderr)
 
     cfg = config.AppConfig(
         schema_version=config.SCHEMA_VERSION,

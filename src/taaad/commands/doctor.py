@@ -6,7 +6,7 @@ import stat
 import sys
 from pathlib import Path
 
-from taaad import config, github, paths, secrets
+from taaad import acl, config, github, paths, secrets
 
 
 def _ok(msg: str) -> None:
@@ -49,6 +49,35 @@ def _check_keyring() -> int:
         return 1
 
 
+def _check_pem_acl(a: config.AppConfig) -> int:
+    """macOS: fail unless only the signed taaad helper may read the PEM.
+
+    Reads the item's access list with `security dump-keychain -a`
+    (never `-d`; no secret is read). Until the helper ships, every
+    macOS item fails this check: the keychain trusts the Python
+    interpreter that stored the key. See SECURITY.md.
+    """
+    if sys.platform != "darwin":
+        return 0
+    try:
+        findings = acl.verdict(secrets.read_acl(a.keychain_key))
+    except RuntimeError as e:
+        # Fail closed: an unreadable list is not a verified one.
+        _err(f"could not read the keychain access list: {e}")
+        return 1
+    if not findings:
+        _ok("keychain access list admits only the signed taaad helper")
+        return 0
+    for f in findings:
+        _err(f"keychain access list: {f.reason}")
+    print(
+        "         Any program listed above can read this App's private key "
+        "without a prompt. See SECURITY.md, \"macOS keychain access list\".",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _check_path() -> int:
     p = paths.taaad_executable()
     print(f"taaad path: {p}")
@@ -79,6 +108,7 @@ def _check_app(a: config.AppConfig) -> int:
         _err(f"PEM missing at keychain key {a.keychain_key!r}")
         return 1
     _ok(f"PEM present at {a.keychain_key}")
+    fails += _check_pem_acl(a)
 
     try:
         pem = secrets.get_pem(a.keychain_key)

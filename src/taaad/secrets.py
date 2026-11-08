@@ -19,6 +19,8 @@ import keyring
 import keyring.backend
 import keyring.errors
 
+from taaad import acl
+
 
 def _username() -> str:
     return os.environ.get("USER") or os.environ.get("USERNAME") or "taaad"
@@ -100,28 +102,36 @@ def backend_info() -> str:
     return _backend_name()
 
 
-def restrict_macos_acl(keychain_key: str, taaad_path: str) -> None:
-    """Best-effort: tighten the macOS Keychain ACL to a single binary.
+def read_acl(keychain_key: str) -> list[acl.AclReport]:
+    """Read the keychain item's access list (macOS only).
 
-    Non-Darwin platforms and `security` errors are swallowed — the
-    keyring already wrote the entry under the default ACL.
+    Runs `security dump-keychain -a`, which lists attributes and access
+    lists but never secret values, and never prompts. Never add `-d`:
+    that decrypts item data. Output is parsed in-process and is not
+    echoed anywhere, including in error messages.
     """
     if sys.platform != "darwin":
-        return
+        raise RuntimeError("keychain ACLs are only inspectable on macOS")
     import subprocess
+    from pathlib import Path
 
+    login = Path.home() / "Library" / "Keychains" / "login.keychain-db"
+    cmd = ["security", "dump-keychain", "-a"] + ([str(login)] if login.exists() else [])
     try:
-        subprocess.run(
-            [
-                "security",
-                "add-generic-password",
-                "-U",
-                "-s", keychain_key,
-                "-a", _username(),
-                "-T", taaad_path,
-            ],
-            check=False,
-            capture_output=True,
-        )
-    except FileNotFoundError:
-        pass
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=60)
+    except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise RuntimeError(f"could not run `security dump-keychain`: {type(e).__name__}") from e
+    if proc.returncode != 0:
+        raise RuntimeError(f"`security dump-keychain` exited {proc.returncode}")
+    return acl.parse_acl(proc.stdout, keychain_key)
+
+
+def weak_acl_notice() -> str | None:
+    """Shown by `taaad register` on macOS. None elsewhere."""
+    if sys.platform != "darwin":
+        return None
+    return (
+        "note: the macOS Keychain trusts the Python interpreter that stored this key, "
+        "so any Python script you run can read it without a prompt. "
+        "`taaad doctor` reports this. See SECURITY.md, \"macOS keychain access list\"."
+    )

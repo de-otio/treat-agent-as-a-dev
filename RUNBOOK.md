@@ -217,8 +217,11 @@ The command:
    under key `github-app-<APP_SLUG>-pem`, where `APP_SLUG` is the
    slug GitHub returned (may differ from the requested name if
    GitHub appended a disambiguator).
-7. On macOS, restricts the keychain item ACL to the `taaad` binary
-   so other processes prompt the user before reading the PEM.
+7. On macOS, prints a note: the Keychain item trusts the Python
+   interpreter that stored it, so any Python script the user runs
+   can read the PEM without a prompt. `taaad doctor` reports this
+   (SECURITY.md, "macOS keychain access list"). It is a known
+   limitation until a signed helper holds the key.
 8. Writes `<config-dir>/apps/<APP_SLUG>.toml` with App ID, slug,
    and keychain key. No secrets in this file.
 9. Prints `slug`, `app_id`, install URL, and the next-step command.

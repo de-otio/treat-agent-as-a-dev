@@ -1,0 +1,48 @@
+keychain: "/Users/testuser/Library/Keychains/login.keychain-db"
+version: 512
+class: "genp"
+attributes:
+    0x00000007 <blob>="github-app-example-c-pem"
+    0x00000008 <blob>=<NULL>
+    "acct"<blob>="testuser"
+    "cdat"<timedate>=0x32303236303530373130313435355A00  "20260507101455Z\000"
+    "crtr"<uint32>=<NULL>
+    "cusi"<sint32>=<NULL>
+    "desc"<blob>=<NULL>
+    "gena"<blob>=<NULL>
+    "icmt"<blob>=<NULL>
+    "invi"<sint32>=<NULL>
+    "mdat"<timedate>=0x32303236303530373130313435355A00  "20260507101455Z\000"
+    "nega"<sint32>=<NULL>
+    "prot"<blob>=<NULL>
+    "scrp"<sint32>=<NULL>
+    "svce"<blob>="github-app-example-c-pem"
+    "type"<uint32>=<NULL>
+access: 5 entries
+    entry 0:
+        authorizations (1): encrypt
+        don't-require-password
+        description: github-app-example-c-pem
+        applications: <null>
+    entry 1:
+        authorizations (6): decrypt derive export_clear export_wrapped mac sign
+        don't-require-password
+        description: github-app-example-c-pem
+        applications (1):
+            0: /usr/local/libexec/taaad-signer (OK)
+                requirement: identifier "org.de-otio.taaad-signer" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "U26DY5A9DU"
+    entry 2:
+        authorizations (1): integrity
+        don't-require-password
+        description: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+        applications: <null>
+    entry 3:
+        authorizations (1): partition_id
+        don't-require-password
+        description: teamid:U26DY5A9DU
+        applications: <null>
+    entry 4:
+        authorizations (1): change_acl
+        don't-require-password
+        description: github-app-example-c-pem
+        applications (0):

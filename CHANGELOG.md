@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.5.6
+
+Corrects a false security claim about the macOS Keychain and makes
+`taaad doctor` report the real state. Also ships `taaad mint`.
 
 - **New `taaad mint --app <slug> --repo <owner>/<repo> --permissions
   <read|write|contents-write> --json`.** Mints an installation token
@@ -12,6 +15,42 @@
   error bodies are redacted.
 - New `github.get_installation`, `github.create_scoped_token`,
   `github.redact`.
+- **The macOS keychain item trusts the Python interpreter, not
+  `taaad`.** python-keyring stores the PEM from the interpreter, and
+  the Keychain trusts whichever executable created an item. Any
+  script that interpreter runs can read the PEM without a prompt.
+  Pre-v0.5.6 docs said `taaad register` scoped the item to the
+  `taaad` binary; it did not (see "Removed" below). SECURITY.md now
+  has a "macOS keychain access list" section stating this plainly.
+- **New `taaad doctor` check (macOS).** For every registered App,
+  `doctor` reads the item's access list with `security
+  dump-keychain -a` (never `-d`: no secret is decrypted or printed)
+  and fails unless the only application allowed to read the PEM is
+  the signed taaad helper. Fails closed if the list cannot be read.
+  The parsing and verdict live in the new pure module `taaad.acl`.
+- **Heads-up: `doctor` now exits non-zero on every macOS install**
+  until the signed helper ships, because no real item can pass.
+  Anything that gates on `doctor`'s exit status will go red.
+- **Removed `secrets.restrict_macos_acl`.** It ran `security
+  add-generic-password -U -s … -T <taaad>` after storing the key.
+  `-T` adds a trusted application and never removes one; the launcher
+  is a Python script, so the Keychain never sees it as the reader;
+  and the step raised two login-password Keychain dialogs with no
+  indication that taaad caused them (the first offering *Always
+  Allow*), while errors were swallowed. `taaad register` now prints a
+  note about the limitation instead.
+- Docs: SECURITY.md, RUNBOOK Step 1 and `docs/architecture.md` no
+  longer claim a per-binary ACL.
+- **Existing keys:** treat any PEM stored before the helper exists as
+  readable by any program `doctor` lists. Rotate (RUNBOOK Step 9)
+  once the helper is available. If `doctor` lists
+  `/usr/bin/security`, an earlier *Always Allow* made the key
+  readable by any shell command; rotate that App sooner. Note that
+  `taaad rotate` updates the item in place and keeps its access list,
+  so delete the old Keychain item first for a clean list.
+- Dev: new `dev` extra (`pytest`, `hypothesis`). Tests: +26 (63 total),
+  including property tests that no item with a non-helper application
+  can pass, against redacted `security dump-keychain` fixtures.
 
 ## v0.5.5
 
