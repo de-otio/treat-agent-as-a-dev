@@ -4,7 +4,7 @@ import argparse
 import sys
 import webbrowser
 
-from taaad import config, secrets
+from taaad import config, keystore, signer
 
 
 def _list() -> int:
@@ -24,7 +24,11 @@ def _show(slug: str) -> int:
     print(f"install_id:     {a.install_id if a.install_id is not None else '(unknown — run `taaad install`)'}")
     print(f"account:        {a.account or '(unknown)'}")
     print(f"keychain_key:   {a.keychain_key}")
-    print(f"keychain_pres.: {'yes' if secrets.has_pem(a.keychain_key) else 'NO'}")
+    try:
+        held = keystore.describe(a)
+    except signer.SignerError as e:
+        held = f"unknown ({e})"
+    print(f"key held by:    {held}")
     print(f"created_at:     {a.created_at}")
     return 0
 
@@ -48,7 +52,11 @@ def _remove(slug: str, ack: bool) -> int:
         except Exception:  # noqa: BLE001
             pass
         return 3
-    secrets.delete_pem(a.keychain_key)
+    try:
+        keystore.delete(a)
+    except signer.SignerError as e:
+        print(f"could not delete the key: {e}\nconfig kept.", file=sys.stderr)
+        return 1
     config.remove_app(slug)
     used_by = config.used_by_path(slug)
     if used_by.exists():

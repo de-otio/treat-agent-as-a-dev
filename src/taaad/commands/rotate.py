@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from taaad import config, github, secrets
+from taaad import config, github, keystore, secrets, signer
 from taaad.slug import validate as validate_slug
 
 
@@ -34,6 +34,35 @@ def _shred(p: Path) -> None:
         pass
 
 
+def _rotate_via_signer(slug: str, cfg: config.AppConfig, pem: str) -> int | None:
+    """Import into the helper, prove the installation, drop the legacy copy.
+
+    Returns None on success, else the exit code. Any failure leaves the
+    PEM file in place; nothing falls back to the keyring.
+    """
+    try:
+        signer.import_key(slug, cfg.app_id, pem, replace=signer.has_key(slug))
+        if cfg.install_id is not None:
+            token = signer.mint(slug, cfg.install_id).token
+            ok = token.startswith("ghs_")
+            token = ""  # noqa: F841
+            if not ok:
+                raise RuntimeError("token shape unexpected")
+            print("✅ token mints with new PEM.", file=sys.stderr)
+        if secrets.has_pem(cfg.keychain_key):
+            secrets.delete_pem(cfg.keychain_key)
+            print("removed the legacy Python-readable keychain copy.", file=sys.stderr)
+    except (signer.SignerError, RuntimeError) as e:
+        print(
+            f"❌ rotation FAILED: {e}\n"
+            f"   The PEM file was left in place. Fix the problem and re-run "
+            f"`taaad rotate`.",
+            file=sys.stderr,
+        )
+        return 1
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     slug = validate_slug(args.slug)
     cfg = config.read_app(slug)
@@ -48,9 +77,30 @@ def run(args: argparse.Namespace) -> int:
         print(f"file does not look like a PEM: {pem_path}", file=sys.stderr)
         return 1
 
-    secrets.set_pem(cfg.keychain_key, pem)
-    pem = None  # discard
+    if keystore.signer_installed():
+        failed = _rotate_via_signer(slug, cfg, pem)
+        pem = None  # discard
+        if failed is not None:
+            return failed
+    else:
+        failed = _rotate_via_keyring(slug, cfg, pem)
+        pem = None  # discard
+        if failed is not None:
+            return failed
 
+    _shred(pem_path)
+    print(f"shredded {pem_path}", file=sys.stderr)
+    print(
+        "\n🛑 Now revoke the OLD private key in the App settings:\n"
+        f"  https://github.com/settings/apps/{slug}\n"
+        "  → Private keys → delete by date.",
+        file=sys.stderr,
+    )
+    return 0
+
+
+def _rotate_via_keyring(slug: str, cfg: config.AppConfig, pem: str) -> int | None:
+    secrets.set_pem(cfg.keychain_key, pem)
     if cfg.install_id is not None:
         try:
             verify_pem = secrets.get_pem(cfg.keychain_key)
@@ -70,13 +120,4 @@ def run(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 1
-
-    _shred(pem_path)
-    print(f"shredded {pem_path}", file=sys.stderr)
-    print(
-        "\n🛑 Now revoke the OLD private key in the App settings:\n"
-        f"  https://github.com/settings/apps/{slug}\n"
-        "  → Private keys → delete by date.",
-        file=sys.stderr,
-    )
-    return 0
+    return None

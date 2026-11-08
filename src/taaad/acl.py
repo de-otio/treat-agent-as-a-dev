@@ -41,6 +41,10 @@ SIGNER_REQUIREMENT = (
     f" and certificate leaf[subject.OU] = {SIGNER_TEAM_ID}"
 )
 
+# The same requirement in source form for `codesign --verify -R=`: the
+# `/* exists */` comments are print-only and not part of the syntax.
+SIGNER_CSREQ = " ".join(re.sub(r"/\*.*?\*/", " ", SIGNER_REQUIREMENT).split())
+
 _INTERPRETERS = ("python", "ruby", "node", "perl", "php", "java", "bash", "zsh", "sh", "osascript")
 
 
