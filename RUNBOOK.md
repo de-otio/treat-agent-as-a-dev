@@ -173,12 +173,19 @@ Verify: `taaad --version`.
 **macOS: install `taaad-signer` before registering an App.** Without it,
 the App's private key goes into a Keychain item that any Python script you
 run can read (SECURITY.md, "macOS keychain access list"). With it, the key
-lives in the signed helper and every new token needs Touch ID. Build and
-install it per [signer/RELEASING.md](signer/RELEASING.md), then check:
+lives in the signed helper and every new token needs Touch ID. Download
+`taaad-signer-<version>.pkg` from the same GitHub release as your taaad
+tag, verify it, and install it:
 
 ```sh
-taaad doctor        # expects: [ok] taaad-signer installed and verified
+shasum -a 256 taaad-signer-<version>.pkg             # equals the SHA-256 in the release notes
+pkgutil --check-signature taaad-signer-<version>.pkg  # Developer ID Installer: Richard Myers (U26DY5A9DU)
+spctl --assess --type install -vv taaad-signer-<version>.pkg   # accepted, Notarized Developer ID
+sudo installer -pkg taaad-signer-<version>.pkg -target /
+taaad doctor        # the helper is reported installed and verified
 ```
+
+Uninstalling and building it yourself: [signer/RELEASING.md](signer/RELEASING.md).
 
 The only prompt taaad should ever cause is **Touch ID from
 "taaad-signer"** naming a mint, import, replacement or deletion that you
