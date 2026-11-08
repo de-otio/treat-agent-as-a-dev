@@ -7,6 +7,7 @@ public enum Command: Equatable, Sendable {
     case mint(slug: String, installId: Int, narrowing: Narrowing)
     case appMeta(slug: String)
     case installations(slug: String)
+    case installation(slug: String, installId: Int)
     case delete(slug: String)
 }
 
@@ -28,6 +29,9 @@ public enum Arguments {
             case "installations": return .installations(slug: slug)
             default: return .delete(slug: slug)
             }
+        case "installation":
+            guard rest.count == 2 else { throw SignerError.usage("usage: installation <slug> <install_id>") }
+            return .installation(slug: try Validate.slug(rest[0]), installId: try Validate.positiveInt(rest[1], what: "install_id"))
         case "import":
             let p = try split(rest, valueOptions: [], flags: ["--replace"])
             guard p.positionals.count == 2 else { throw SignerError.usage("usage: import <slug> <app_id> [--replace]") }

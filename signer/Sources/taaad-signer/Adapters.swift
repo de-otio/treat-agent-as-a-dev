@@ -87,3 +87,30 @@ struct URLSessionGitHub: GitHub {
         return HTTPResponse(status: http.statusCode, body: data ?? Data())
     }
 }
+
+/// Exclusive flock on a read-only descriptor of the helper's own executable, so every instance contends on one file.
+struct FlockLock: Lock {
+    static func executablePath() -> String? {
+        if let p = Bundle.main.executablePath { return p }
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        var buf = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buf, &size) == 0 else { return nil }
+        return String(decoding: buf.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    }
+
+    func withExclusive<T>(_ body: () throws -> T) throws -> T {
+        guard let path = FlockLock.executablePath() else { throw SignerError.internalError("cannot locate own executable for locking") }
+        let fd = open(path, O_RDONLY | O_CLOEXEC)
+        guard fd >= 0 else { throw SignerError.internalError("cannot open own executable for locking") }
+        defer { close(fd) }
+        let deadline = Date().addingTimeInterval(120)
+        while flock(fd, LOCK_EX | LOCK_NB) != 0 {
+            guard errno == EWOULDBLOCK || errno == EINTR else { throw SignerError.internalError("flock failed") }
+            if Date() >= deadline { throw SignerError.rateLimited(retryAfter: 60) }
+            usleep(100_000)
+        }
+        defer { flock(fd, LOCK_UN) }
+        return try body()
+    }
+}

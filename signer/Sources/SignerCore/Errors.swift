@@ -19,6 +19,7 @@ public enum SignerError: Error, Equatable, Sendable {
     case exists(slug: String)
     case badKey(String)
     case appMismatch(expected: Int, actual: Int)
+    case appIdChanged(stored: Int, requested: Int)
     case internalError(String)
 
     public var code: String {
@@ -32,7 +33,7 @@ public enum SignerError: Error, Equatable, Sendable {
         case .keychain: "keychain"
         case .exists: "exists"
         case .badKey: "bad-key"
-        case .appMismatch: "app-mismatch"
+        case .appMismatch, .appIdChanged: "app-mismatch"
         case .internalError: "internal"
         }
     }
@@ -48,7 +49,7 @@ public enum SignerError: Error, Equatable, Sendable {
         case .keychain: 8
         case .exists: 9
         case .badKey: 10
-        case .appMismatch: 11
+        case .appMismatch, .appIdChanged: 11
         case .internalError: 1
         }
     }
@@ -65,6 +66,7 @@ public enum SignerError: Error, Equatable, Sendable {
         case .exists(let s): "a key for slug \(s) already exists; use --replace"
         case .badKey(let m): m
         case .appMismatch(let e, let a): "GET /app returned id \(a), expected \(e)"
+        case .appIdChanged(let s, let r): "the stored App ID is \(s), not \(r); rotation never changes the App ID"
         case .internalError(let m): m
         }
     }

@@ -18,11 +18,13 @@ public enum Reasons {
         "delete the GitHub App private key for \(slug)"
     }
 
+    static func cut(_ name: String) -> String { name.count > 40 ? String(name.prefix(40)) + "\u{2026}" : name }
+
     public static func mint(slug: String, account: String, narrowing: Narrowing) -> String {
-        let r = narrowing.repositories.isEmpty ? "all the App can reach" : limited(narrowing.canonicalRepositories)
+        let r = narrowing.repositories.isEmpty ? "all the App can reach" : limited(narrowing.canonicalRepositories.map(cut))
         let p = narrowing.permissions.isEmpty
             ? "all the App was granted"
             : limited(narrowing.sortedPermissions.map { "\($0.name):\($0.level)" })
-        return "mint a GitHub token for \(slug) on \(account) (repositories: \(r); permissions: \(p))"
+        return "mint a GitHub token for \(slug) on \(account) (permissions: \(p); repositories: \(r))"
     }
 }

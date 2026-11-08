@@ -59,6 +59,16 @@ verify_signed_bundle() {
   rm -rf "$tmp"
 }
 
+# Every keychain call in the shell adapter must take its query from KC.query( (SPEC section 9, item 8).
+check_keychain_adapter() {
+  local f="${1:-$SIGNER_DIR/Sources/taaad-signer/Keychain.swift}" calls viaquery
+  [ -f "$f" ] || die "adapter source not found: $f"
+  calls="$(grep -cE 'SecItem(Add|Update|Delete|CopyMatching)\(' "$f" || true)"
+  viaquery="$(grep -cE 'SecItem(Add|Update|Delete|CopyMatching)\(KC\.query\(' "$f" || true)"
+  [ "$calls" -gt 0 ] || die "no SecItem calls found in $f (guard would be vacuous)"
+  [ "$calls" = "$viaquery" ] || die "$f: $calls SecItem call(s) but only $viaquery take their query from KC.query("
+}
+
 # Allow tests to source the check functions without running a build.
 if [ "${BASH_SOURCE[0]}" != "$0" ]; then return 0; fi
 
@@ -78,6 +88,7 @@ if [ "$SIGN" = 1 ]; then
 fi
 
 check_entitlements_file "$SIGNER_DIR/Resources/taaad-signer.entitlements"
+check_keychain_adapter
 
 PROFILE_PLIST=""
 if [ "$SIGN" = 1 ]; then

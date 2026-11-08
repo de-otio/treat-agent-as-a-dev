@@ -12,7 +12,7 @@ public enum JWT {
 
     /// Compact JSON with a fixed key order.
     public static func payloadJSON(appId: Int, now: Int) -> String {
-        "{\"iat\":\(now - 60),\"exp\":\(now + 540),\"iss\":\"\(appId)\"}"
+        "{\"iat\":\(now - 60),\"exp\":\(now + 120),\"iss\":\"\(appId)\"}"
     }
 
     public static func signingInput(appId: Int, now: Int) -> String {

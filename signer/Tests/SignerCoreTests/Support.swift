@@ -5,7 +5,29 @@ import XCTest
 
 // MARK: fakes
 
-final class Trace { var events: [String] = [] }
+/// Serialises fake state so tests can drive them from several threads.
+final class Guard: @unchecked Sendable {
+    private let l = NSRecursiveLock()
+    func run<T>(_ f: () throws -> T) rethrows -> T { l.lock(); defer { l.unlock() }; return try f() }
+}
+
+final class Trace {
+    private let g = Guard()
+    private var _events: [String] = []
+    var events: [String] { get { g.run { _events } } set { g.run { _events = newValue } } }
+    func add(_ e: String) { g.run { _events.append(e) } }
+}
+
+/// Test lock: a real mutex, so concurrent runs behave as under flock.
+final class MutexLock: Lock, @unchecked Sendable {
+    private let m = NSLock()
+    func withExclusive<T>(_ body: () throws -> T) throws -> T { m.lock(); defer { m.unlock() }; return try body() }
+}
+
+/// Negative control: no serialisation at all.
+struct NoLock: Lock {
+    func withExclusive<T>(_ body: () throws -> T) throws -> T { try body() }
+}
 
 final class FakeClock: Clock {
     var date: Date
@@ -17,19 +39,27 @@ final class FakeClock: Clock {
 struct StoreKey: Hashable { let kind: ItemKind; let account: String }
 
 final class MemStore: Store {
-    var items: [StoreKey: Data] = [:]
+    private let g = Guard()
+    private var _items: [StoreKey: Data] = [:]
+    var items: [StoreKey: Data] { get { g.run { _items } } set { g.run { _items = newValue } } }
     let trace: Trace
     var failPut: Set<ItemKind> = []
+    /// Runs after every `get(.rate)` read, outside the guard: widens the check-then-write race.
+    var afterRateRead: (() -> Void)?
     init(trace: Trace) { self.trace = trace }
-    func get(_ kind: ItemKind, account: String) throws -> Data? { items[StoreKey(kind: kind, account: account)] }
+    func get(_ kind: ItemKind, account: String) throws -> Data? {
+        let d = g.run { _items[StoreKey(kind: kind, account: account)] }
+        if kind == .rate { afterRateRead?() }
+        return d
+    }
     func put(_ kind: ItemKind, account: String, data: Data) throws {
-        trace.events.append("store.put.\(kind.rawValue)")
+        trace.add("store.put.\(kind.rawValue)")
         if failPut.contains(kind) { throw SignerError.keychain(osstatus: -25299, message: "fake put failure") }
-        items[StoreKey(kind: kind, account: account)] = data
+        g.run { _items[StoreKey(kind: kind, account: account)] = data }
     }
     func delete(_ kind: ItemKind, account: String) throws {
-        trace.events.append("store.delete.\(kind.rawValue)")
-        items[StoreKey(kind: kind, account: account)] = nil
+        trace.add("store.delete.\(kind.rawValue)")
+        g.run { _items[StoreKey(kind: kind, account: account)] = nil }
     }
     func list(_ kind: ItemKind, accountPrefix: String) throws -> [String] {
         items.keys.filter { $0.kind == kind && $0.account.hasPrefix(accountPrefix) }.map(\.account).sorted()
@@ -52,7 +82,7 @@ final class FakeKeys: KeyStore {
     init(trace: Trace) { self.trace = trace }
     func makeKey(pkcs1DER: Data) throws -> any SigningKey { made.append(pkcs1DER); return FakeKey(der: pkcs1DER) }
     func add(_ key: any SigningKey, slug: String) throws {
-        trace.events.append("keys.add")
+        trace.add("keys.add")
         if failAdd { throw SignerError.keychain(osstatus: -25299, message: "fake add failure") }
         keys[slug] = (key as! FakeKey)
     }
@@ -60,32 +90,36 @@ final class FakeKeys: KeyStore {
         if ambiguous.contains(slug) { throw SignerError.keychain(osstatus: -25299, message: "ambiguous") }
         return keys[slug]
     }
-    func delete(slug: String) throws { trace.events.append("keys.delete"); keys[slug] = nil }
+    func delete(slug: String) throws { trace.add("keys.delete"); keys[slug] = nil }
 }
 
 final class FakePresence: Presence {
+    private let g = Guard()
     var answers: [Bool] = []
     var defaultAnswer = true
-    var reasons: [String] = []
+    private var _reasons: [String] = []
+    var reasons: [String] { g.run { _reasons } }
     var onApprove: (() -> Void)?
     func approve(reason: String) -> Bool {
-        reasons.append(reason)
+        g.run { _reasons.append(reason) }
         onApprove?()
-        return answers.isEmpty ? defaultAnswer : answers.removeFirst()
+        return g.run { answers.isEmpty ? defaultAnswer : answers.removeFirst() }
     }
 }
 
 struct Call: Equatable { let method: String; let path: String; let jwt: String; let body: Data }
 
 final class FakeGitHub: GitHub {
-    var calls: [Call] = []
+    private let g = Guard()
+    private var _calls: [Call] = []
+    var calls: [Call] { g.run { _calls } }
     var handler: (Call) throws -> HTTPResponse = { _ in HTTPResponse(status: 500, body: Data()) }
     let trace: Trace
     init(trace: Trace) { self.trace = trace }
     func get(path: String, jwt: String) throws -> HTTPResponse { try handle(Call(method: "GET", path: path, jwt: jwt, body: Data())) }
     func post(path: String, jwt: String, body: Data) throws -> HTTPResponse { try handle(Call(method: "POST", path: path, jwt: jwt, body: body)) }
     private func handle(_ c: Call) throws -> HTTPResponse {
-        calls.append(c); trace.events.append("github.\(c.method) \(c.path)")
+        g.run { _calls.append(c) }; trace.add("github.\(c.method) \(c.path)")
         return try handler(c)
     }
     var posts: [Call] { calls.filter { $0.method == "POST" } }
@@ -108,6 +142,7 @@ final class World {
     var tokenLifetime = 3600
     var appId = 123
     var stdinCalls = 0
+    var lock: any Lock = MutexLock()
 
     init(withKey: Bool = true, slug: String = "app") {
         store = MemStore(trace: trace); keys = FakeKeys(trace: trace); github = FakeGitHub(trace: trace)
@@ -119,7 +154,7 @@ final class World {
         github.handler = { [unowned self] c in self.defaultHandler(c) }
     }
 
-    var env: Environment { Environment(store: store, keys: keys, clock: clock, presence: presence, github: github) }
+    var env: Environment { Environment(store: store, keys: keys, clock: clock, presence: presence, github: github, lock: lock) }
 
     /// Default GitHub: installation 42 on "octo-org"; tokens echo the narrowing exactly.
     func defaultHandler(_ c: Call) -> HTTPResponse {

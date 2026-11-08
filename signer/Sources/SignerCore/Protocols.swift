@@ -59,13 +59,20 @@ public protocol GitHub {
     func post(path: String, jwt: String, body: Data) throws -> HTTPResponse
 }
 
+public protocol Lock {
+    /// Runs `body` while holding the helper-wide exclusive lock. A lock that cannot be taken in time
+    /// throws `SignerError.rateLimited(retryAfter: 60)`.
+    func withExclusive<T>(_ body: () throws -> T) throws -> T
+}
+
 public struct Environment {
     public let store: any Store
     public let keys: any KeyStore
     public let clock: any Clock
     public let presence: any Presence
     public let github: any GitHub
-    public init(store: any Store, keys: any KeyStore, clock: any Clock, presence: any Presence, github: any GitHub) {
-        self.store = store; self.keys = keys; self.clock = clock; self.presence = presence; self.github = github
+    public let lock: any Lock
+    public init(store: any Store, keys: any KeyStore, clock: any Clock, presence: any Presence, github: any GitHub, lock: any Lock) {
+        self.store = store; self.keys = keys; self.clock = clock; self.presence = presence; self.github = github; self.lock = lock
     }
 }

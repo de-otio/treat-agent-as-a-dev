@@ -5,9 +5,9 @@ import Security
 final class JWTTests: XCTestCase {
     func testHeaderAndPayloadBytesAreExactForAFixedClock() {
         XCTAssertEqual(JWT.headerJSON, "{\"alg\":\"RS256\",\"typ\":\"JWT\"}")
-        XCTAssertEqual(JWT.payloadJSON(appId: 123, now: 1_700_000_000), "{\"iat\":1699999940,\"exp\":1700000540,\"iss\":\"123\"}")
+        XCTAssertEqual(JWT.payloadJSON(appId: 123, now: 1_700_000_000), "{\"iat\":1699999940,\"exp\":1700000120,\"iss\":\"123\"}")
         XCTAssertEqual(JWT.signingInput(appId: 123, now: 1_700_000_000),
-                       "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE2OTk5OTk5NDAsImV4cCI6MTcwMDAwMDU0MCwiaXNzIjoiMTIzIn0")
+                       "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpYXQiOjE2OTk5OTk5NDAsImV4cCI6MTcwMDAwMDEyMCwiaXNzIjoiMTIzIn0")
     }
 
     func testSignatureVerifiesWithThePublicKey() throws {
@@ -128,16 +128,16 @@ final class ReasonTests: XCTestCase {
         XCTAssertEqual(Reasons.replaceKey(slug: "s", appId: 5), "replace the GitHub App private key for s (App ID 5)")
         XCTAssertEqual(Reasons.deleteKey(slug: "s"), "delete the GitHub App private key for s")
         XCTAssertEqual(Reasons.mint(slug: "s", account: "o", narrowing: .none),
-                       "mint a GitHub token for s on o (repositories: all the App can reach; permissions: all the App was granted)")
+                       "mint a GitHub token for s on o (permissions: all the App was granted; repositories: all the App can reach)")
         let few = try Narrowing(repositories: ["b", "a"], permissions: [("issues", "write"), ("contents", "read")])
         XCTAssertEqual(Reasons.mint(slug: "s", account: "o", narrowing: few),
-                       "mint a GitHub token for s on o (repositories: a, b; permissions: contents:read, issues:write)")
+                       "mint a GitHub token for s on o (permissions: contents:read, issues:write; repositories: a, b)")
         let five = try Narrowing(repositories: ["a", "b", "c", "d", "e"], permissions: [])
-        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: five).contains("a, b, c, d, e;"))
+        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: five).contains("a, b, c, d, e)"))
         let six = try Narrowing(repositories: ["a", "b", "c", "d", "e", "f"], permissions: [])
-        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: six).contains("a, b, c, d, e and 1 more;"))
+        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: six).contains("a, b, c, d, e and 1 more)"))
         let perms = try Narrowing(repositories: [], permissions: ["a", "b", "c", "d", "e", "f", "g"].map { ($0, "read") })
-        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: perms).contains("a:read, b:read, c:read, d:read, e:read and 2 more)"))
+        XCTAssertTrue(Reasons.mint(slug: "s", account: "o", narrowing: perms).contains("a:read, b:read, c:read, d:read, e:read and 2 more; repositories:"))
     }
 }
 
@@ -180,7 +180,8 @@ final class OtherCommandTests: XCTestCase {
         XCTAssertEqual(w.presence.reasons, ["delete the GitHub App private key for app"])
         XCTAssertNil(w.keys.keys["app"])
         XCTAssertEqual(w.store.accounts(.token), ["app2/42/cc"])
-        XCTAssertTrue(w.store.accounts(.meta).isEmpty); XCTAssertTrue(w.store.accounts(.rate).isEmpty)
+        XCTAssertTrue(w.store.accounts(.meta).isEmpty)
+        XCTAssertEqual(w.rateLog, [w.now], "delete spends a prompt and does not reset the budget")
     }
 
     func testDeleteNeedsPresenceAndAKey() {

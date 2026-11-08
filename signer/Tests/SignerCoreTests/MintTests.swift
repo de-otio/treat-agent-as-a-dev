@@ -21,7 +21,7 @@ final class MintTests: XCTestCase {
         XCTAssertEqual(j["cached"], .bool(false))
         XCTAssertEqual(j["account"]?.stringValue, "octo-org")
         XCTAssertEqual(j["repositories"], .array([.string("Repo-One")]))
-        XCTAssertEqual(w.presence.reasons, ["mint a GitHub token for app on octo-org (repositories: repo-one; permissions: contents:read)"])
+        XCTAssertEqual(w.presence.reasons, ["mint a GitHub token for app on octo-org (permissions: contents:read; repositories: repo-one)"])
         XCTAssertNotNil(w.store.items[try cacheKey(mintArgs)])
         let post = try XCTUnwrap(w.github.posts.first)
         XCTAssertEqual(post.path, "/app/installations/42/access_tokens")
@@ -296,6 +296,7 @@ final class MintTests: XCTestCase {
                 let rank = levels.firstIndex(of: p.1)!
                 respPerms[p.0] = .string(levels[Int.random(in: 0...rank, using: &rng)])
             }
+            if !reqPerms.isEmpty, respPerms["metadata"] == nil, Bool.random(using: &rng) { respPerms["metadata"] = .string("read") }
             var respRepos = reqRepos.filter { _ in Bool.random(using: &rng) }.map { Bool.random(using: &rng) ? $0.uppercased() : $0 }
             var selection = reqRepos.isEmpty ? "all" : "selected"
 
@@ -308,7 +309,7 @@ final class MintTests: XCTestCase {
                 switch kinds.randomElement(using: &rng)! {
                 case 0:
                     let free = (permNames + ["workflows"]).first { n in !reqPerms.contains { $0.0 == n } }!
-                    respPerms[free] = .string("read")
+                    respPerms[free] = .string("write") // "read" would be fine for metadata (implicit)
                 case 1:
                     let p = reqPerms.first { $0.1 != "admin" }!
                     respPerms[p.0] = .string(levels[levels.firstIndex(of: p.1)! + 1])

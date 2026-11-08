@@ -13,7 +13,7 @@ func readStdinLimited() throws -> Data {
 }
 
 let environment = Environment(store: KeychainStore(), keys: KeychainKeyStore(), clock: SystemClock(),
-                              presence: LAPresence(), github: URLSessionGitHub())
+                              presence: LAPresence(), github: URLSessionGitHub(), lock: FlockLock())
 let result = run(arguments: Array(CommandLine.arguments.dropFirst()), readStdin: readStdinLimited, environment: environment)
 if !result.stdout.isEmpty { FileHandle.standardOutput.write(Data(result.stdout.utf8)) }
 if !result.stderr.isEmpty { FileHandle.standardError.write(Data(result.stderr.utf8)) }

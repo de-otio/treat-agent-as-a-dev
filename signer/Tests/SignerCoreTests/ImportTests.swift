@@ -59,7 +59,7 @@ final class ImportTests: XCTestCase {
         let w = World(withKey: false)
         if withKey {
             w.keys.keys["app"] = FakeKey(der: Data([9]))
-            w.store.items[StoreKey(kind: .meta, account: "app")] = MetaRecord(slug: "app", appId: 5, appSlug: "old", importedAt: "2025-01-01T00:00:00Z").json.serializedData()
+            w.store.items[StoreKey(kind: .meta, account: "app")] = MetaRecord(slug: "app", appId: 123, appSlug: "old", importedAt: "2025-01-01T00:00:00Z").json.serializedData()
             w.store.items[StoreKey(kind: .token, account: "app/42/abc")] = Data("{}".utf8)
             w.store.items[StoreKey(kind: .token, account: "other/42/abc")] = Data("{}".utf8)
             w.store.items[StoreKey(kind: .rate, account: "app")] = RateLimit.encode([1])
@@ -85,11 +85,11 @@ final class ImportTests: XCTestCase {
         for replace in [false, true] {
             let w = importWorld(withKey: replace)
             w.appId = 999 // GET /app answers with another id
-            let itemsBefore = w.store.items
+            let itemsBefore = w.store.items.filter { $0.key.kind != .rate }
             let keysBefore = w.keys.keys.mapValues(\.der)
             let r = w.run(["import", "app", "123"] + (replace ? ["--replace"] : []), stdin: pkcs1PEM)
             assertFails(r, "app-mismatch", exit: 11)
-            XCTAssertEqual(w.store.items, itemsBefore, "replace=\(replace)")
+            XCTAssertEqual(w.store.items.filter { $0.key.kind != .rate }, itemsBefore, "replace=\(replace)")
             XCTAssertEqual(w.keys.keys.mapValues(\.der), keysBefore)
             XCTAssertFalse(w.trace.events.contains { $0.hasPrefix("store.delete") || $0 == "keys.delete" || $0 == "keys.add" }, "\(w.trace.events)")
         }
@@ -109,7 +109,7 @@ final class ImportTests: XCTestCase {
         XCTAssertEqual(w.keys.keys["app"]?.der, der)
         XCTAssertNil(w.store.items[StoreKey(kind: .token, account: "app/42/abc")], "slug's token cache cleared")
         XCTAssertNotNil(w.store.items[StoreKey(kind: .token, account: "other/42/abc")], "other slugs untouched")
-        XCTAssertNil(w.store.items[StoreKey(kind: .rate, account: "app")], "prompt log cleared")
+        XCTAssertEqual(w.store.items[StoreKey(kind: .rate, account: "app")], RateLimit.encode([w.now]), "replace spends one prompt and must not reset the budget")
         XCTAssertEqual(MetaRecord.parse(w.store.items[StoreKey(kind: .meta, account: "app")]!)?.appId, 123)
     }
 
@@ -142,7 +142,7 @@ final class ImportTests: XCTestCase {
         assertFails(w.run(["import", "app", "123"], stdin: pkcs1PEM), "presence-denied", exit: 4)
         XCTAssertTrue(w.github.calls.isEmpty)
         XCTAssertTrue(w.keys.keys.isEmpty)
-        XCTAssertTrue(w.store.items.isEmpty)
+        XCTAssertEqual(w.store.accounts(.meta), []); XCTAssertEqual(w.store.accounts(.token), [])
     }
 
     func testAddFailureAfterReplaceDeleteIsKeychainError() {
@@ -164,7 +164,7 @@ final class ImportTests: XCTestCase {
         w.github.handler = { _ in HTTPResponse(status: 401, body: Data("{\"message\":\"A JSON web token could not be decoded\"}".utf8)) }
         let r = w.run(["import", "app", "123"], stdin: pkcs1PEM)
         assertFails(r, "github", exit: 6)
-        XCTAssertTrue(w.keys.keys.isEmpty); XCTAssertTrue(w.store.items.isEmpty)
+        XCTAssertTrue(w.keys.keys.isEmpty); XCTAssertEqual(w.store.accounts(.meta), []); XCTAssertEqual(w.store.accounts(.token), [])
     }
 
     func testStdinIsReadOnlyForImport() {

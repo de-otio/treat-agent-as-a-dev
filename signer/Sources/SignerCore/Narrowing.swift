@@ -169,6 +169,8 @@ public enum Widening {
     public static func violates(requested: Narrowing, granted: TokenGrant) -> Bool {
         if !requested.permissions.isEmpty {
             for (name, level) in granted.permissions {
+                // GitHub adds `metadata: read` to every narrowed token; anything above read still counts.
+                if name == "metadata", level == "read" { continue }
                 guard let want = requested.permissions[name],
                       let wantRank = PermissionLevel.rank(want),
                       let gotRank = PermissionLevel.rank(level),

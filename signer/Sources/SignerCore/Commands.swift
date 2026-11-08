@@ -56,13 +56,29 @@ public struct Signer {
         }
     }
 
+    /// The one prompt budget: rate check, log write and prompt run under the exclusive lock.
+    func promptWithinBudget(slug: String, reason: String) throws {
+        try env.lock.withExclusive {
+            let now = env.clock.unixSeconds()
+            switch RateLimit.decide(stored: try env.store.get(.rate, account: slug), now: now) {
+            case .allow(let log):
+                try env.store.put(.rate, account: slug, data: RateLimit.encode(log))
+            case .limited(let retryAfter, let replacement):
+                if let replacement { try env.store.put(.rate, account: slug, data: RateLimit.encode(replacement)) }
+                throw SignerError.rateLimited(retryAfter: retryAfter)
+            }
+            try requirePresence(reason)
+        }
+    }
+
+    /// Clears the key, its meta and token cache. The prompt log is kept: it is the budget for every prompt,
+    /// so delete/replace must not reset it.
     func clearSlug(_ slug: String) throws {
         try env.keys.delete(slug: slug)
         for account in try env.store.list(.token, accountPrefix: slug + "/") {
             try env.store.delete(.token, account: account)
         }
         try env.store.delete(.meta, account: slug)
-        try env.store.delete(.rate, account: slug)
     }
 
     // MARK: commands
@@ -84,6 +100,11 @@ public struct Signer {
             let j = try get("/app/installations?per_page=100", appId: meta.appId, key: key)
             guard j.arrayValue != nil else { throw SignerError.github(status: 200, message: "GitHub returned an unexpected response shape") }
             return j
+        case .installation(let slug, let installId):
+            let (meta, key) = try requireKey(slug)
+            let j = try get("/app/installations/\(installId)", appId: meta.appId, key: key)
+            guard j.objectValue != nil else { throw SignerError.github(status: 200, message: "GitHub returned an unexpected response shape") }
+            return j
         case .delete(let slug): return try delete(slug)
         }
     }
@@ -99,7 +120,7 @@ public struct Signer {
         let key = try env.keys.find(slug: slug)
         let meta = try? loadMeta(slug)
         guard key != nil || meta != nil else { throw SignerError.notFound(slug: slug) }
-        try requirePresence(Reasons.deleteKey(slug: slug))
+        try promptWithinBudget(slug: slug, reason: Reasons.deleteKey(slug: slug))
         try clearSlug(slug)
         return .object(["slug": .string(slug), "deleted": .bool(true)])
     }
@@ -108,8 +129,11 @@ public struct Signer {
         guard pem.count <= PEM.maxInputBytes else { throw SignerError.badKey("input larger than 64 KiB") }
         let existed = try env.keys.find(slug: slug) != nil
         if existed && !replace { throw SignerError.exists(slug: slug) }
+        if replace, let stored = try loadMeta(slug), stored.appId != appId {
+            throw SignerError.appIdChanged(stored: stored.appId, requested: appId)
+        }
         let key = try env.keys.makeKey(pkcs1DER: try PEM.parsePrivateKey(pem))
-        try requirePresence(replace ? Reasons.replaceKey(slug: slug, appId: appId) : Reasons.importKey(slug: slug, appId: appId))
+        try promptWithinBudget(slug: slug, reason: replace ? Reasons.replaceKey(slug: slug, appId: appId) : Reasons.importKey(slug: slug, appId: appId))
 
         // Verify before touching the store.
         let app = try get("/app", appId: appId, key: key)
@@ -149,17 +173,8 @@ public struct Signer {
         guard let login = inst["account"]?["login"]?.stringValue, Validate.isPlausibleLogin(login) else {
             throw SignerError.github(status: 200, message: "installation response has no usable account login")
         }
-        // 5. rate limit, written before prompting
-        let now = env.clock.unixSeconds()
-        switch RateLimit.decide(stored: try env.store.get(.rate, account: slug), now: now) {
-        case .allow(let log):
-            try env.store.put(.rate, account: slug, data: RateLimit.encode(log))
-        case .limited(let retryAfter, let replacement):
-            if let replacement { try env.store.put(.rate, account: slug, data: RateLimit.encode(replacement)) }
-            throw SignerError.rateLimited(retryAfter: retryAfter)
-        }
-        // 6. presence
-        try requirePresence(Reasons.mint(slug: slug, account: login, narrowing: narrowing))
+        // 5+6. one prompt budget (rate check, log write, prompt), serialised
+        try promptWithinBudget(slug: slug, reason: Reasons.mint(slug: slug, account: login, narrowing: narrowing))
         // 7. POST (fresh JWT: the prompt may have taken a while)
         let jwt = try JWT.make(appId: meta.appId, now: env.clock.unixSeconds(), key: key)
         let response = try env.github.post(path: "/app/installations/\(installId)/access_tokens", jwt: jwt, body: narrowing.requestBody)
