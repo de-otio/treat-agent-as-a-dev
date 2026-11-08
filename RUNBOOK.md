@@ -170,6 +170,20 @@ pipx install git+https://github.com/de-otio/treat-agent-as-a-dev@<tag>
 Always pin to a tag (see [README.md → Pinning](README.md#pinning)).
 Verify: `taaad --version`.
 
+**macOS: install `taaad-signer` before registering an App.** Without it,
+the App's private key goes into a Keychain item that any Python script you
+run can read (SECURITY.md, "macOS keychain access list"). With it, the key
+lives in the signed helper and every new token needs Touch ID. Build and
+install it per [signer/RELEASING.md](signer/RELEASING.md), then check:
+
+```sh
+taaad doctor        # expects: [ok] taaad-signer installed and verified
+```
+
+The only prompt taaad should ever cause is **Touch ID from
+"taaad-signer"** naming a mint, import, replacement or deletion that you
+started. Deny any Keychain dialog that asks to use a `github-app-*` item.
+
 ## Step 1 — Register the App via manifest flow 🛑
 
 ```sh
@@ -511,6 +525,16 @@ Rotation flow (3 minutes, two human checkpoints):
    the old key by date). This invalidates any token already
    minted from the old PEM.
 ```
+
+**macOS with `taaad-signer` installed:** `taaad rotate` imports the new
+key into the helper (Touch ID: "replace/import the GitHub App private key
+for <APP_SLUG>"). It then mints a test token (Touch ID again), deletes the
+old Python-readable Keychain item if one exists, and only then shreds the
+file. This is also **how an existing App moves to the helper**: rotate it
+once after installing the helper, then revoke the old key. Every key stored
+before the helper existed was readable by any Python script, so don't copy
+it across. `taaad doctor` should then show `[ok] key held by taaad-signer`
+and no legacy item.
 
 ## Step 10 — Teardown
 

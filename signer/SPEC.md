@@ -260,3 +260,17 @@ These override the sections above where they conflict. Source: the independent s
 10. **Python widening check:** the same implicit `metadata: read` rule as item 4.
 11. **`register` failure message** also says that the private key generated during registration is live on GitHub but
     held by nobody, and must be deleted on the App's settings page (Private keys, the key dated today).
+12. **New helper command `installation <slug> <install_id>`** (no presence prompt): prints the JSON object from
+    `GET /app/installations/<install_id>` (it contains `account.login` and the granted `permissions`). Same errors as
+    `app-meta`. `taaad mint` needs it to compute its permission body before asking for a token.
+13. **`taaad mint` (src/taaad/commands/mint.py, merged on main as 4a642df) goes through the helper** when
+    `keystore.uses_signer(slug)`: `signer.installation(...)` for the owner check and the granted permissions, then
+    `signer.mint(slug, install_id, repos=[repo], perms=body)`. The command's contract stays the same: argv, TTY
+    refusal, the stdout JSON keys (`token, expiresAt, installationAccount, installationId, appId, repositories,
+    permissions`), empty stdout on any refusal, and all of its existing checks (exactly one repository, no permission
+    above the request). Without the helper it keeps today's legacy path. Route it through `keystore` (add
+    `keystore.installation(cfg)` and `keystore.mint_scoped(cfg, repo, perms) -> MintedToken-like`), never by calling
+    `secrets` directly.
+14. **Stable exit codes for `taaad mint` refusals** (consumer: repo-aegis): `2` TTY refusal (unchanged), `3`
+    rate-limited (`signer.RateLimited`), `4` presence cancelled or denied (`signer.PresenceDenied`), and `1` for
+    everything else. Stdout stays empty on all of them. Document them in `taaad mint --help` and README.

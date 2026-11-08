@@ -38,35 +38,59 @@ stored** — there is no per-binary ACL.
 
 ### macOS keychain access list
 
-macOS is not better today, only different. The Keychain decides who
-may read an item by the *executable* that asks, and python-keyring
-stores the PEM from the Python interpreter. The item therefore
-trusts that interpreter — for taaad installed with pipx, a Homebrew
-`python3` — and **every script it runs reads the PEM without a
-prompt**. An agent session running as the user can run that
-interpreter, so it can read the App's private key, mint
-installation tokens for every repository the App is installed on,
-and copy the key off the machine.
+**Without the helper (all releases before v0.6.0, and v0.6.0 until
+`taaad-signer` is installed and holds the key):** the Keychain decides
+who may read an item by the *executable* that asks, and python-keyring
+stores the PEM from the Python interpreter. The item therefore trusts
+that interpreter (for a pipx install, a Homebrew `python3`), and
+**every script it runs reads the PEM without a prompt**. An agent
+session running as the user can run that interpreter, read the App's
+private key, mint installation tokens for every repository the App is
+installed on, and copy the key off the machine.
 
-Releases before v0.5.6 ran `security add-generic-password -T
-<taaad>` after storing the key and described that as scoping the
-entry to taaad. It did not: `-T` adds an application to the list
-rather than replacing it, the interpreter stayed on the list, and
-the `taaad` launcher is a Python script, so the Keychain never sees
-it as the reader. v0.5.6 removes that step. An item can also
-accumulate trust over time: clicking *Always Allow* on a Keychain
-prompt (for example for `/usr/bin/security`) adds that program for
-good, and a Homebrew Python upgrade shows a new prompt whose
-*Always Allow* adds the new interpreter as well.
+Releases before v0.5.6 ran `security add-generic-password -T <taaad>`
+after storing the key and described that as scoping the entry to taaad.
+It did not: `-T` adds an application to the list rather than replacing
+it, the interpreter stayed on the list, and the `taaad` launcher is a
+Python script, so the Keychain never sees it as the reader. An item also
+accumulates trust over time: *Always Allow* on a Keychain prompt (for
+example for `/usr/bin/security`) adds that program for good.
 
-`taaad doctor` reads each item's access list (`security
-dump-keychain -a`; it never decrypts or prints a secret) and fails
-unless the only program allowed to read the PEM is the signed taaad
-helper. That helper is not shipped yet, so **on macOS `doctor`
-currently reports this finding for every App**. Treat any PEM stored
-before the helper exists as readable by any program the output
-lists: rotate it (RUNBOOK Step 9) once the helper is available, and
-earlier if the list includes `/usr/bin/security`.
+**With the helper (v0.6.0+, macOS):** `taaad-signer` is a small signed
+app-like bundle installed root-owned in
+`/Library/Application Support/taaad/`. It is the only holder of each
+App key. The key lives in the **data-protection keychain**, in an
+access group that only code signed with the taaad Developer ID **and**
+carrying its provisioning profile can use. Other programs (Python,
+`security`, any binary an agent builds) cannot see, read, delete or
+plant those items, and no "Allow" dialog exists for them. The helper
+has a fixed command set and no command that returns a key. Minting a
+token needs Touch ID or the login password, with a prompt that names
+the App, the account, the permissions and the repositories. Tokens are
+cached until 5 minutes before they expire, and at most 3 prompts per
+10 minutes per App are shown. `taaad register` and `taaad rotate`
+store new keys there; `taaad doctor` fails while a legacy
+Python-readable copy still exists.
+
+Limits that remain with the helper:
+
+- **The signing identity is the root of trust.** Anything signed with
+  the taaad Developer ID together with its provisioning profile gets
+  every App key. That identity must not be usable by an agent: keep it
+  in a separate, password-locked keychain (see signer/RELEASING.md),
+  and build and sign only when no agent session is running.
+- **The prompt names an app, not a proof.** Any program can show a
+  dialog titled "taaad-signer". Approving a look-alike gives it
+  nothing, because it can't reach the access group, but the prompt
+  text is only meaningful when taaad caused it.
+- **One approval covers the cache.** taaad's own credential helper
+  does not narrow yet (narrowing policy is repo-aegis Q5), so an
+  approved token covers everything the installation grants, and any
+  program running as the user can get the cached token from the helper
+  until it is 5 minutes from expiry (about 55 minutes). A request with
+  a *different* narrowing always prompts again.
+- **Registration and rotation pass the PEM through Python once**, on
+  its way from the downloaded file into the helper.
 
 The threat model assumes the user's account is trusted. If that
 assumption fails, the PEM is recoverable by any process the
