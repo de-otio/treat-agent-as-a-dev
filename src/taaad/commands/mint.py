@@ -17,6 +17,9 @@ from taaad.slug import validate as validate_slug
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 _READ_SET = ("metadata", "contents", "pull_requests", "issues")
+# Permission levels, for checking that a response grants no more than was asked: a key that was not
+# requested (-1) or a level GitHub has not documented (99) both count as exceeding.
+_LEVEL = {"read": 0, "write": 1, "admin": 2}
 
 
 def _err(msg: str) -> int:
@@ -97,7 +100,9 @@ def run(args: argparse.Namespace) -> int:
         ):
             return _err("response repositories are not exactly the requested one; refusing")
         got = resp.get("permissions") or {}
-        if not isinstance(got, dict) or set(got) - set(body):
+        if not isinstance(got, dict) or any(
+            _LEVEL.get(v, 99) > _LEVEL.get(body.get(k, ""), -1) for k, v in got.items()
+        ):
             return _err("response permissions exceed the request; refusing")
         out = {
             "token": token,

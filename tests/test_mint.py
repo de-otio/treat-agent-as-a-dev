@@ -185,6 +185,19 @@ def test_widened_response_permissions_refused(world, capsys):
     assert rc != 0 and capsys.readouterr().out == ""
 
 
+def test_raised_response_permission_level_refused(world, capsys):
+    # Same key as requested, higher level: read was asked, write came back.
+    world.minted_perms = {"metadata": "read", "contents": "write"}
+    rc = mint_mod.run(_args())
+    assert rc != 0 and capsys.readouterr().out == ""
+
+
+def test_undocumented_response_permission_level_refused(world, capsys):
+    world.minted_perms = {"metadata": "read", "contents": "owner"}
+    rc = mint_mod.run(_args())
+    assert rc != 0 and capsys.readouterr().out == ""
+
+
 def test_token_never_in_stderr_on_http_error(world, capsys):
     world.post_resp = _Resp(
         422, text=f'{{"message":"bad","echo":"{TOKEN}","h":"Bearer abc.def.ghi12345"}}')
