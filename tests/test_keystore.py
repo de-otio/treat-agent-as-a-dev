@@ -17,6 +17,9 @@ from taaad import acl, config, github, identity, keystore, secrets, signer
 from taaad.commands import apps, doctor, install, rotate, uninstall_cmd
 from tests.fake_signer import TOKEN, fake_signer, mint_output  # noqa: F401
 
+# The helper is macOS-only; these tests run a POSIX fake helper.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="taaad-signer is macOS-only; tests use a POSIX fake helper")
+
 _KIND = "RSA " + "PRIVATE " + "KEY"  # built at runtime: no literal PEM armour in the source
 PEM = f"-----BEGIN {_KIND}-----\nAAAA\n-----END {_KIND}-----\n"
 SLUG = "my-app"

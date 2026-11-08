@@ -7,12 +7,16 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import sys
 
 import pytest
 
 from taaad import cli, config, github, secrets
 from taaad.commands import mint as mint_mod
 from tests.fake_signer import TOKEN, fake_signer, mint_output  # noqa: F401
+
+# The helper is macOS-only; these tests run a POSIX fake helper.
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="taaad-signer is macOS-only; tests use a POSIX fake helper")
 
 SLUG = "my-app"
 GRANTED = {"metadata": "read", "contents": "write", "pull_requests": "write", "issues": "write"}
