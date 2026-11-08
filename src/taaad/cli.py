@@ -59,6 +59,16 @@ def _add_env(sub: argparse._SubParsersAction) -> None:
                    help="print to stdout even if it's a TTY (default: refuse)")
 
 
+def _add_mint(sub: argparse._SubParsersAction) -> None:
+    p = sub.add_parser("mint", help="mint a one-repository, one-permission-class token as JSON")
+    p.add_argument("--app", required=True, help="App slug")
+    p.add_argument("--repo", required=True, help="<owner>/<repo>")
+    p.add_argument("--permissions", required=True,
+                   choices=["read", "write", "contents-write"])
+    p.add_argument("--json", action="store_true", required=True,
+                   help="emit a JSON object (the only format; must be given)")
+
+
 def _add_credential_helper(sub: argparse._SubParsersAction) -> None:
     p = sub.add_parser("credential-helper",
                        help="git-credential helper (called by git, not by humans)")
@@ -105,6 +115,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_uninit(sub)
     _add_agent(sub)
     _add_env(sub)
+    _add_mint(sub)
     _add_credential_helper(sub)
     _add_rotate(sub)
     _add_doctor(sub)
@@ -140,6 +151,9 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "env":
         from taaad.commands import env
         return env.run(args)
+    if cmd == "mint":
+        from taaad.commands import mint
+        return mint.run(args)
     if cmd == "credential-helper":
         from taaad.commands import credential_helper
         return credential_helper.run(args)

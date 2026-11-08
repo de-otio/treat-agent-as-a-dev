@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **New `taaad mint --app <slug> --repo <owner>/<repo> --permissions
+  <read|write|contents-write> --json`.** Mints an installation token
+  narrowed to one repository and one permission class (intersected
+  with the installation's granted permissions) and prints a single
+  JSON object. Refuses a TTY (no `--force`), a repo owner that is not
+  the installation account, and any response that lists more than the
+  one requested repository. The token never appears in errors; HTTP
+  error bodies are redacted.
+- New `github.get_installation`, `github.create_scoped_token`,
+  `github.redact`.
+
 ## v0.5.5
 
 `taaad doctor` continuously enforces Operating Rule 8 (Apps must
