@@ -69,6 +69,38 @@ If `pipx` isn't available, `pip install --user
 git+https://github.com/...@<tag>` works too. Per-machine, not
 per-engagement.
 
+## `taaad mint` — a token for one repository
+
+```sh
+taaad mint --app example-bot --repo example-org/widgets \
+           --permissions <read|write|contents-write> --json | consumer
+```
+
+All four options are required (`--json` is the only output format and
+must be given). Mints an installation token whose body names exactly
+one repository and one permission class, always intersected with what
+the installation was granted:
+
+| `--permissions`  | Token permissions                                                   |
+|------------------|---------------------------------------------------------------------|
+| `read`           | `metadata`, `contents`, `pull_requests`, `issues` (those granted) as `read` |
+| `contents-write` | `contents: write`, `metadata: read` (refused if not granted)        |
+| `write`          | the installation's granted permissions, unchanged                   |
+
+`--repo` must be `<owner>/<repo>`; the owner must equal the
+installation's account login (case-insensitive) or nothing is minted.
+On success stdout carries exactly one JSON object:
+`{token, expiresAt, installationAccount, installationId, appId,
+repositories, permissions}`. If GitHub's response lists anything other
+than the one requested repository, `mint` refuses and prints nothing.
+
+`mint` refuses to run when stdout is a TTY (there is no `--force`);
+the token only ever goes to a pipe. Errors go to stderr, are passed
+through a credential redactor, and never contain the token. Config is
+located the same way as every other command: `TAAAD_CONFIG_DIR`, else
+the platform config dir (`XDG_CONFIG_HOME` on Linux), so a caller that
+must not be steerable should spawn it with a minimal environment.
+
 ## What's in this repo
 
 - [`RUNBOOK.md`](RUNBOOK.md) — the playbook the agent follows
