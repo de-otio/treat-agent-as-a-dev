@@ -4,6 +4,8 @@ Anything signed with the taaad Developer ID **and** the helper's provisioning pr
 machine that runs it (SECURITY.md, "macOS keychain access list"). So the signing identity is the root of trust, and
 this document is mostly about keeping it out of an agent's reach. Users who only install the helper need just the last section, "Installing from a release".
 
+To automate verification and, optionally, the release itself in CI, see [CI.md](CI.md) (design, untested).
+
 ## Rules
 
 - Build and sign only from a terminal you opened yourself, with **no agent session running** on the machine. A

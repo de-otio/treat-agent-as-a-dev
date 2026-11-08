@@ -92,6 +92,20 @@ final class ReviewFixTests: XCTestCase {
         XCTAssertEqual(w.run(repl, stdin: pem).exitCode, 0, "same App ID is fine")
     }
 
+    // security review L4: a key whose meta item is missing must not be replaceable under a different App ID
+    func testReplaceRefusesAKeyWithoutMeta() throws {
+        let w = World()
+        try w.store.delete(.meta, account: "app")
+        XCTAssertNotNil(w.keys.keys["app"])
+        let before = w.store.items
+        let r = w.run(["import", "app", "999", "--replace"], stdin: pem)
+        assertFails(r, "keychain", exit: 8)
+        XCTAssertEqual(w.presence.reasons.count, 0, "refused before prompting")
+        XCTAssertTrue(w.github.calls.isEmpty)
+        XCTAssertEqual(w.store.items, before)
+        XCTAssertNotNil(w.keys.keys["app"], "the key is untouched")
+    }
+
     // item 4
     func testImplicitMetadataRead() throws {
         func widened(_ n: Narrowing, _ perms: [String: String]) -> Bool {

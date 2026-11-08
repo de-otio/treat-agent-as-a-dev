@@ -36,7 +36,9 @@ CODESIGN = "/usr/bin/codesign"
 # The helper gets no environment beyond this (it ignores it anyway).
 _ENV = {"PATH": "/usr/bin:/bin"}
 
-PROMPT_TIMEOUT_S = 120
+# A prompting command may wait up to 120 s for the helper's budget lock (Adapters.swift) and then wait for the person.
+# This must stay above the lock wait, or a held lock kills the helper before it can report "rate-limited".
+PROMPT_TIMEOUT_S = 240
 QUICK_TIMEOUT_S = 30
 _PROMPTING = frozenset({"import", "mint", "delete"})
 

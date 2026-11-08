@@ -129,6 +129,10 @@ public struct Signer {
         guard pem.count <= PEM.maxInputBytes else { throw SignerError.badKey("input larger than 64 KiB") }
         let existed = try env.keys.find(slug: slug) != nil
         if existed && !replace { throw SignerError.exists(slug: slug) }
+        // A key without its meta item (left by a failed write) has no stored App ID to pin the replacement to.
+        if replace && existed, try loadMeta(slug) == nil {
+            throw SignerError.keychain(osstatus: -25300, message: "the key for \(slug) has no meta item, so its App ID cannot be checked; delete it first")
+        }
         if replace, let stored = try loadMeta(slug), stored.appId != appId {
             throw SignerError.appIdChanged(stored: stored.appId, requested: appId)
         }

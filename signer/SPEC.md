@@ -274,3 +274,15 @@ These override the sections above where they conflict. Source: the independent s
 14. **Stable exit codes for `taaad mint` refusals** (consumer: repo-aegis): `2` TTY refusal (unchanged), `3`
     rate-limited (`signer.RateLimited`), `4` presence cancelled or denied (`signer.PresenceDenied`), and `1` for
     everything else. Stdout stays empty on all of them. Document them in `taaad mint --help` and README.
+
+### Release review (round 3, before v0.6.0)
+
+Independent security review of the round-2 changes. Fixed:
+
+- **L1** `PROMPT_TIMEOUT_S` raised to 240 s so Python never kills the helper while it waits for the 120 s budget lock; a held lock now surfaces as `rate-limited`.
+- **L2** `install.sh` `assert_tree` rejects any entry that is not a regular file or directory (FIFOs and sockets created after the source check).
+- **L3** `install.sh` refuses a symlinked destination directory.
+- **L4** `import --replace` on a key with no meta item fails with a `keychain` error ("delete it first"), so the App ID pin cannot be skipped.
+- `package.sh`: see RELEASING.md (staged payload has no extended attributes, package is asserted not relocatable).
+
+Open: **M1** the App JWT for the read commands and the first `mint` request is sent before any prompt, over a session that honours system proxies and user- or admin-installed trust anchors. An attacker with admin rights could intercept a 120 s JWT and mint tokens without presence. Fix options and the decision are in plans/0003-pem-keychain-acl.md. Accepted, as already documented: the unprompted read commands (`installation`, `app-meta`, `installations`) are callable by any local process.

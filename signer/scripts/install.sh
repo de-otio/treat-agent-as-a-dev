@@ -37,11 +37,12 @@ check_regular_only() {
   if [ -n "$odd" ]; then echo "bundle contains entries that are neither regular files nor directories:" >&2; echo "$odd" >&2; return 1; fi
 }
 
-# $1 = installed tree: no symlinks; every entry root:wheel; no group or other write.
+# $1 = installed tree: only regular files and directories (no symlinks, fifos, sockets, devices);
+# every entry root:wheel; no group or other write.
 assert_tree() {
   local bad
-  bad="$(find "$1" -type l -print)"
-  [ -z "$bad" ] || { echo "symlinks in installed tree:" >&2; echo "$bad" >&2; return 1; }
+  bad="$(find "$1" ! -type f ! -type d -print)"
+  [ -z "$bad" ] || { echo "entries that are neither regular files nor directories in installed tree:" >&2; echo "$bad" >&2; return 1; }
   bad="$(find "$1" \( ! -user root -o ! -group wheel \) -print)"
   [ -z "$bad" ] || { echo "entries not owned by root:wheel:" >&2; echo "$bad" >&2; return 1; }
   bad="$(find "$1" \( -perm -020 -o -perm -002 \) -print)"
@@ -57,7 +58,9 @@ SRC="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/build/taaad-signer.ap
 check_regular_only "$SRC" || die "refusing to install: unexpected entry types in the source bundle"
 verify "$SRC" || die "source bundle does not verify; refusing to install"
 
+[ ! -L "$DEST_DIR" ] || die "$DEST_DIR is a symlink; refusing to install through it"
 mkdir -p "$DEST_DIR"
+[ -d "$DEST_DIR" ] && [ ! -L "$DEST_DIR" ] || die "$DEST_DIR is not a plain directory"
 chown root:wheel "$DEST_DIR"
 chmod 755 "$DEST_DIR"
 

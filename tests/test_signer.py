@@ -103,7 +103,10 @@ def test_prompting_commands_get_the_long_timeout(fake_signer, monkeypatch):
     fake_signer.set("mint", stdout=mint_output())
     signer.status("a")
     signer.mint("a", 1)
-    assert seen == {"status": 30, "mint": 120}
+    assert seen == {"status": 30, "mint": signer.PROMPT_TIMEOUT_S}
+    # The helper waits up to 120 s for its budget lock before it can prompt; Python must not kill it first
+    # (security review L1), or a held lock shows up as a protocol error instead of "rate-limited".
+    assert signer.PROMPT_TIMEOUT_S > 120
 
 
 @pytest.mark.parametrize("bad", ["", "UPPER", "-x", "a" * 40, "a b", "a/b"])
