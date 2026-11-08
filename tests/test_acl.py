@@ -3,7 +3,8 @@
 Fixtures under tests/fixtures are redacted `security dump-keychain -a`
 output (slugs, home path and code hashes replaced). The first two are
 shaped like real items observed on a macOS machine; the signer-only
-one is synthetic because the helper does not exist yet.
+one is shaped like the item the Phase 2a spike created with the
+Developer-ID-signed helper.
 """
 
 from __future__ import annotations
@@ -31,10 +32,7 @@ SVC_B = "github-app-example-b-pem"
 SVC_A = "github-app-example-a-pem"
 SVC_C = "github-app-example-c-pem"
 
-SIGNER_REQ = (
-    f'identifier "{acl.SIGNER_IDENTIFIER}" and anchor apple generic '
-    f'and certificate leaf[subject.OU] = "{acl.SIGNER_TEAM_ID}"'
-)
+SIGNER_REQ = acl.SIGNER_REQUIREMENT
 
 
 def report(*apps: acl.TrustedApp, any_app=False, partitions=frozenset()) -> acl.AclReport:
@@ -53,13 +51,13 @@ def test_parse_interpreter_and_launcher_item():
     assert r.apps[2].requirement == "none"
     assert r.apps[0].requirement.startswith("cdhash")
     assert not r.any_app
-    assert r.partitions == {"cdhash"}
+    assert r.partitions and all(p.startswith("cdhash:") for p in r.partitions)
 
 
 def test_parse_security_item_sees_apple_tool_partition():
     (r,) = acl.parse_acl(load("acl_python_and_security.txt"), SVC_A)
     assert "/usr/bin/security" in [a.path for a in r.apps]
-    assert "apple-tool" in r.partitions
+    assert "apple-tool:" in r.partitions
 
 
 def test_encrypt_entry_null_applications_is_not_any_app():
@@ -131,6 +129,29 @@ def test_signer_path_without_code_requirement_fails():
 def test_wrong_team_id_fails():
     dump = load("acl_signer_only_synthetic.txt").replace(acl.SIGNER_TEAM_ID, "AAAAAAAAAA")
     assert acl.verdict(acl.parse_acl(dump, SVC_C))
+
+
+def test_quoted_team_id_is_the_same_requirement():
+    quoted = acl.SIGNER_REQUIREMENT.replace(
+        f"= {acl.SIGNER_TEAM_ID}", f'= "{acl.SIGNER_TEAM_ID}"')
+    assert acl.is_signer(acl.TrustedApp("/x", quoted))
+
+
+@pytest.mark.parametrize("req", [
+    acl.SIGNER_REQUIREMENT + " or anchor apple",
+    "anchor apple or " + acl.SIGNER_REQUIREMENT,
+    acl.SIGNER_REQUIREMENT.replace("taaad-signer", "taaad-signer2"),
+    acl.SIGNER_REQUIREMENT.replace(" and anchor apple generic", ""),
+    'identifier "org.de-otio.taaad-signer" and anchor apple generic',
+])
+def test_requirement_must_match_exactly(req):
+    assert not acl.is_signer(acl.TrustedApp("/x/taaad-signer", req))
+
+
+def test_foreign_partition_fails_even_with_signer_only():
+    r = report(acl.TrustedApp("/x/taaad-signer", SIGNER_REQ),
+               partitions={acl.SIGNER_PARTITION, "cdhash:aa"})
+    assert "outside the taaad team" in codes(acl.verdict([r]))
 
 
 def test_signer_plus_interpreter_fails():

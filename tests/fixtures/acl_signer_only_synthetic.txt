@@ -30,7 +30,7 @@ access: 5 entries
         description: github-app-example-c-pem
         applications (1):
             0: /usr/local/libexec/taaad-signer (OK)
-                requirement: identifier "org.de-otio.taaad-signer" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = "U26DY5A9DU"
+                requirement: identifier "org.de-otio.taaad-signer" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = U26DY5A9DU
     entry 2:
         authorizations (1): integrity
         don't-require-password

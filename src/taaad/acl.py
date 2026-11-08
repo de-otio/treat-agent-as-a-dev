@@ -23,14 +23,23 @@ _READ_AUTHS = frozenset({"decrypt", "export_clear", "export_wrapped", "derive", 
 
 # Partition IDs under which Apple-signed binaries (including
 # /usr/bin/security) may read the item without a prompt.
-_APPLE_PARTITIONS = frozenset({"apple", "apple-tool"})
+_APPLE_PARTITIONS = frozenset({"apple:", "apple-tool:"})
 
 # Identity the signed helper must carry before it may hold a PEM.
-# PROVISIONAL: the helper does not exist yet, so nothing matches and
-# verdict() fails for every real item. Pin the final values when the
-# helper's signing identity is fixed.
+# Developer ID team and code-signing identifier (plan 0003, D1). The
+# identifier is fixed for good: changing it orphans every key item.
 SIGNER_TEAM_ID = "U26DY5A9DU"
 SIGNER_IDENTIFIER = "org.de-otio.taaad-signer"
+SIGNER_PARTITION = f"teamid:{SIGNER_TEAM_ID}"
+
+# The helper's designated requirement, as `codesign -dr -` and
+# `security dump-keychain -a` print it (the standard Developer ID form).
+SIGNER_REQUIREMENT = (
+    f'identifier "{SIGNER_IDENTIFIER}" and anchor apple generic'
+    " and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */"
+    " and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */"
+    f" and certificate leaf[subject.OU] = {SIGNER_TEAM_ID}"
+)
 
 _INTERPRETERS = ("python", "ruby", "node", "perl", "php", "java", "bash", "zsh", "sh", "osascript")
 
@@ -108,9 +117,7 @@ def _parse_entry(entry: str) -> tuple[frozenset[str], bool, tuple[TrustedApp, ..
     if "partition_id" in auths:
         dm = re.search(r"description: (?P<d>.*)", entry)
         if dm:
-            partitions = frozenset(
-                p.split(":", 1)[0].strip() for p in dm.group("d").split(",") if p.strip()
-            )
+            partitions = frozenset(p.strip() for p in dm.group("d").split(",") if p.strip())
     return auths, any_app, tuple(apps), partitions
 
 
@@ -145,18 +152,25 @@ def parse_acl(dump: str, service: str) -> list[AclReport]:
     return reports
 
 
-def is_signer(app: TrustedApp) -> bool:
-    """True only for an app whose code requirement pins the signed helper.
+def _canonical_requirement(req: str) -> str:
+    """Drop `/* ... */` comments and quotes, collapse whitespace.
 
-    A path alone (`requirement: none`) never qualifies: the keychain
+    Tools disagree on quoting (`codesign` leaves the Team ID bare,
+    other printers quote it), so compare in a form both reduce to.
+    """
+    req = re.sub(r"/\*.*?\*/", " ", req).replace('"', "")
+    return " ".join(req.split())
+
+
+def is_signer(app: TrustedApp) -> bool:
+    """True only for an app whose code requirement is exactly the helper's.
+
+    Exact match, not substring: `identifier "<helper>" or anchor apple`
+    contains every expected clause and admits all Apple code. A path
+    alone (`requirement: none`) never qualifies either: the keychain
     would then trust whatever sits at that path.
     """
-    req = app.requirement
-    return (
-        f'identifier "{SIGNER_IDENTIFIER}"' in req
-        and f'certificate leaf[subject.OU] = "{SIGNER_TEAM_ID}"' in req
-        and "anchor apple generic" in req
-    )
+    return _canonical_requirement(app.requirement) == _canonical_requirement(SIGNER_REQUIREMENT)
 
 
 def _describe(app: TrustedApp) -> str:
@@ -182,10 +196,15 @@ def verdict(reports: list[AclReport]) -> list[Finding]:
         for app in r.apps:
             if not is_signer(app):
                 findings.append(Finding(subject, _describe(app)))
-        weak = sorted(r.partitions & _APPLE_PARTITIONS)
-        if weak:
+        apple = sorted(r.partitions & _APPLE_PARTITIONS)
+        if apple:
             findings.append(
-                Finding(subject, f"partition list admits Apple-signed tools ({', '.join(weak)})")
+                Finding(subject, f"partition list admits Apple-signed tools ({', '.join(apple)})")
+            )
+        other = sorted(r.partitions - _APPLE_PARTITIONS - {SIGNER_PARTITION})
+        if other:
+            findings.append(
+                Finding(subject, f"partition list admits code outside the taaad team ({', '.join(other)})")
             )
         if not r.apps and not r.any_app:
             findings.append(Finding(subject, "no signed taaad helper is trusted for this item"))
