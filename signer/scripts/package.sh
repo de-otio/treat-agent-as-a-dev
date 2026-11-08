@@ -28,7 +28,8 @@ DEST="/Library/Application Support/taaad"
 [ -d "$APP" ] || die "$APP not found; run scripts/build.sh first"
 
 # 1. The bundle must be the signed, notarisable build: strict signature, our requirement, hardened runtime, timestamp.
-codesign --verify --strict --verbose=2 -R="=$REQ" "$APP" || die "bundle signature does not verify against the taaad requirement"
+# -R="<req>" (a leading "=" is codesign's own "inline requirement" marker; do not add another).
+codesign --verify --strict --verbose=2 -R="$REQ" "$APP" || die "bundle signature does not verify against the taaad requirement"
 info="$(codesign -dvv "$APP" 2>&1)"
 grep -q 'flags=0x10000(runtime)' <<<"$info" || die "bundle is not signed with the hardened runtime"
 grep -q '^Timestamp=' <<<"$info" || die "bundle has no secure timestamp (notarisation would fail)"
@@ -42,16 +43,37 @@ trap 'rm -rf "$WORK"' EXIT
 # 2. Payload root: exactly the bundle at its install location.
 mkdir -p "$WORK/root$DEST"
 cp -R "$APP" "$WORK/root$DEST/"
+# Strip extended attributes: cp copies the provisioning profile's quarantine flag and its download URL (which names the
+# team and profile ID), and pkgbuild would pack them into the shipped package as ._ files. They are not part of the
+# code signature, so stripping keeps it valid (checked just below).
+xattr -cr "$WORK/root"
+[ -z "$(xattr -lr "$WORK/root")" ] || die "extended attributes remain in the payload"
+codesign --verify --strict -R="$REQ" "$WORK/root$DEST/taaad-signer.app" || die "staged bundle no longer verifies"
 
 # 3. Component plist: the bundle must NOT be relocatable, or Installer could "update" a copy found elsewhere on disk.
+#    `pkgbuild --analyze` may not write the key at all, so set it if present and add it otherwise.
 pkgbuild --analyze --root "$WORK/root" "$WORK/component.plist" >/dev/null
-/usr/libexec/PlistBuddy -c 'Set :0:BundleIsRelocatable false' "$WORK/component.plist"
+/usr/libexec/PlistBuddy -c 'Set :0:BundleIsRelocatable false' "$WORK/component.plist" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c 'Add :0:BundleIsRelocatable bool false' "$WORK/component.plist"
 /usr/libexec/PlistBuddy -c 'Set :0:BundleOverwriteAction upgrade' "$WORK/component.plist"
 
 # 4. Component package (no scripts: nothing runs as root during install), owned root:wheel.
 pkgbuild --root "$WORK/root" --component-plist "$WORK/component.plist" \
   --identifier "$ID" --version "$VERSION" --install-location / --ownership recommended \
   "$WORK/taaad-signer-component.pkg"
+
+# Assert what the docs promise: not relocatable, no scripts, no AppleDouble entries, nothing outside the bundle.
+pkgutil --expand "$WORK/taaad-signer-component.pkg" "$WORK/expanded"
+grep -q 'relocatable="false"' "$WORK/expanded/PackageInfo" || die "package is relocatable"
+[ ! -e "$WORK/expanded/Scripts" ] || die "package contains install scripts"
+files="$(pkgutil --payload-files "$WORK/taaad-signer-component.pkg")"
+if grep -q '/\._' <<<"$files"; then die "payload contains AppleDouble (._) entries"; fi
+while IFS= read -r f; do
+  case "$f" in
+    .|./Library|"./Library/Application Support"|"./Library/Application Support/taaad"|"./Library/Application Support/taaad/taaad-signer.app"|"./Library/Application Support/taaad/taaad-signer.app/"*) ;;
+    *) die "payload contains a path outside the bundle: $f" ;;
+  esac
+done <<<"$files"
 
 # 5. Signed product archive (flat package) with the Developer ID Installer identity and a secure timestamp.
 productbuild --package "$WORK/taaad-signer-component.pkg" \

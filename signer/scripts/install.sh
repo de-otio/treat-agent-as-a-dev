@@ -64,6 +64,7 @@ chmod 755 "$DEST_DIR"
 STAGE="$DEST_DIR/.taaad-signer.app.new"
 rm -rf "$STAGE"
 cp -R "$SRC" "$STAGE"
+xattr -cr "$STAGE" # drop the profile's quarantine flag and download URL; not part of the signature (verify below)
 chown -R root:wheel "$STAGE"
 chmod -R u=rwX,go=rX "$STAGE"
 assert_tree "$STAGE" || { rm -rf "$STAGE"; die "staged tree failed the ownership/symlink check; nothing installed"; }
