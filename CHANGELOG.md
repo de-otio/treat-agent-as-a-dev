@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.7.0
+
+- **`taaad mint --permissions read` follows the installation.** It now
+  requests every permission the installation grants, each at `read`,
+  instead of the fixed `metadata`, `contents`, `pull_requests`, `issues`.
+  A permission added to the App (code scanning, Actions, checks, …) works
+  as soon as a person accepts it on the installation, with no taaad
+  release. Permissions with no read level (`workflows`) are left out.
+- **Tokens can be wider than in v0.6.0, but only at `read`.** On an
+  installation that grants more than the four keys, a `read` token now
+  carries those too, org-level permissions included. See SECURITY.md for
+  the sensitive ones.
+- **New `--only PERM,...` and `--exclude PERM,...`** (read class only,
+  mutually exclusive). `--only` keeps the v0.6.0 shape:
+  `--only metadata,contents,pull_requests,issues`.
+- An HTTP 422 from GitHub under `read` now suggests `--exclude`. Exit
+  codes are unchanged.
+- **Needs repo-aegis ≥ 0.13.0.** Older repo-aegis refuses these tokens as
+  wider than the requested scope.
+
 ## v0.6.0
 
 Adds `taaad-signer`, a small signed and notarised macOS helper that holds the

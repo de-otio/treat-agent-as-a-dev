@@ -238,3 +238,104 @@ def test_invalid_repo_refused(world, repo, capsys):
 def test_invalid_slug_refused(world, slug, capsys):
     rc = mint_mod.run(_args(app=slug))
     assert rc != 0 and world.posts == []
+
+
+# --- plan 0004: `read` is derived from the installation --------------------------------------
+
+from hypothesis import given, strategies as st  # noqa: E402
+
+WIDE = {**GRANTED, "security_events": "read", "actions": "write", "checks": "admin"}
+
+
+def test_read_derives_every_granted_permission_at_read(world, capsys):
+    world.granted = dict(WIDE)
+    assert mint_mod.run(_args()) == 0
+    assert world.posts[0]["permissions"] == {
+        "metadata": "read", "contents": "read", "pull_requests": "read", "issues": "read",
+        "security_events": "read", "actions": "read", "checks": "read"}
+
+
+def test_read_only_flag_narrows(world, capsys):
+    world.granted = dict(WIDE)
+    assert mint_mod.run(_args(only="metadata,contents")) == 0
+    assert world.posts[0]["permissions"] == {"metadata": "read", "contents": "read"}
+
+
+def test_read_only_flag_ungranted_key_refused_before_mint(world, capsys):
+    rc = mint_mod.run(_args(only="metadata,security_events"))
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == "" and world.posts == []
+    assert "security_events" in out.err
+
+
+def test_read_exclude_flag_drops_key(world, capsys):
+    world.granted = dict(WIDE)
+    assert mint_mod.run(_args(exclude="actions,not_granted")) == 0
+    assert "actions" not in world.posts[0]["permissions"]
+    assert world.posts[0]["permissions"]["security_events"] == "read"
+
+
+@pytest.mark.parametrize("kind", ["write", "contents-write"])
+@pytest.mark.parametrize("flag", ["only", "exclude"])
+def test_narrowing_flags_refused_outside_read(world, capsys, kind, flag):
+    rc = mint_mod.run(_args(permissions=kind, **{flag: "contents"}))
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == "" and world.posts == []
+
+
+@pytest.mark.parametrize("value", ["", "Contents", "contents,", "a-b", "x" * 65])
+def test_bad_permission_list_refused(world, capsys, value):
+    rc = mint_mod.run(_args(only=value))
+    assert rc == 1 and capsys.readouterr().out == "" and world.posts == []
+
+
+def test_only_and_exclude_mutually_exclusive():
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(
+            ["mint", "--app", "a", "--repo", "o/r", "--permissions", "read", "--json",
+             "--only", "contents", "--exclude", "issues"])
+
+
+def test_derived_body_still_refuses_widened_response(world, capsys):
+    world.granted = dict(WIDE)
+    world.minted_perms = {"metadata": "read", "security_events": "write"}
+    rc = mint_mod.run(_args())
+    assert rc == 1 and capsys.readouterr().out == ""
+
+
+def test_422_under_read_hints_exclude(world, capsys):
+    world.post_resp = _Resp(422, text='{"message":"Invalid permission level"}')
+    rc = mint_mod.run(_args())
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == "" and TOKEN not in out.err
+    assert "--exclude" in out.err
+
+
+def test_422_under_write_has_no_hint(world, capsys):
+    world.post_resp = _Resp(422, text='{"message":"x"}')
+    rc = mint_mod.run(_args(permissions="write"))
+    out = capsys.readouterr()
+    assert rc == 1 and "--exclude" not in out.err
+
+
+_names = st.from_regex(r"[a-z][a-z_]{0,20}", fullmatch=True)
+_granted = st.dictionaries(_names | st.just("workflows"), st.sampled_from(["read", "write", "admin"]),
+                           min_size=1, max_size=12)
+
+
+@given(_granted, st.data())
+def test_read_body_properties(granted, data):
+    keys = sorted(granted)
+    mode = data.draw(st.sampled_from(["none", "only", "exclude"]))
+    sub = frozenset(data.draw(st.lists(st.sampled_from(keys), unique=True)))
+    only = sub if mode == "only" else None
+    exclude = sub if mode == "exclude" else frozenset()
+    expected = {k for k in granted if k not in mint_mod._NO_READ_LEVEL and k not in exclude
+                and (only is None or k in only)}
+    try:
+        body = mint_mod.permission_body("read", granted, only=only, exclude=exclude)
+    except ValueError:
+        assert not expected  # the only refusal possible here: nothing left to request
+        return
+    assert set(body.values()) == {"read"}
+    assert set(body) == expected  # equality: a fixed key list would fail this

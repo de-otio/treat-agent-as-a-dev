@@ -74,6 +74,7 @@ per-engagement.
 ```sh
 taaad mint --app example-bot --repo example-org/widgets \
            --permissions <read|write|contents-write> --json | consumer
+           [--only PERM,... | --exclude PERM,...]   # read class only
 ```
 
 All four options are required (`--json` is the only output format and
@@ -83,9 +84,17 @@ the installation was granted:
 
 | `--permissions`  | Token permissions                                                   |
 |------------------|---------------------------------------------------------------------|
-| `read`           | `metadata`, `contents`, `pull_requests`, `issues` (those granted) as `read` |
+| `read`           | every permission the installation grants, each at `read` (see below) |
 | `contents-write` | `contents: write`, `metadata: read` (refused if not granted)        |
 | `write`          | the installation's granted permissions, unchanged                   |
+
+`read` follows the installation: a permission a person grants on the
+installation (code scanning, Actions, checks, …) is usable at `read` as
+soon as it is accepted, with no taaad release. Permissions with no read
+level (`workflows`) are left out. Org-level permissions the installation
+grants are included. `--only a,b` requests just those (each must be
+granted, or nothing is minted); `--exclude a,b` leaves them out. If
+GitHub refuses a level with HTTP 422, the error suggests `--exclude`.
 
 `--repo` must be `<owner>/<repo>`; the owner must equal the
 installation's account login (case-insensitive) or nothing is minted.

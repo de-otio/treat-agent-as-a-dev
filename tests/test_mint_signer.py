@@ -154,3 +154,21 @@ def test_readme_documents_exit_codes():
 
     text = (Path(__file__).parent.parent / "README.md").read_text()
     assert "rate-limited by `taaad-signer`" in text and "presence prompt cancelled" in text
+
+
+def test_derived_read_reaches_helper(world, capsys):
+    wide = {**GRANTED, "security_events": "read", "workflows": "write"}
+    world.set("installation", stdout={"account": {"login": "Example-Org"}, "permissions": wide})
+    world.set("mint", stdout=good_mint() | {"permissions": {**READ_PERMS, "security_events": "read"}})
+    assert mint_mod.run(args()) == 0
+    argv = [c["argv"] for c in world.calls() if c["argv"][0] == "mint"][0]
+    perms = sorted(argv[i + 1] for i, a in enumerate(argv) if a == "--perm")
+    assert perms == ["contents=read", "issues=read", "metadata=read",
+                     "pull_requests=read", "security_events=read"]
+
+
+def test_helper_422_under_read_hints_exclude(world, capsys):
+    world.set("mint", exit=6, stderr={"error": "github", "message": "Invalid permission", "status": 422})
+    rc = mint_mod.run(args())
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == "" and "--exclude" in out.err

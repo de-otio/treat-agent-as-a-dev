@@ -16,7 +16,12 @@ from taaad import config, github, keystore, signer
 from taaad.slug import validate as validate_slug
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
-_READ_SET = ("metadata", "contents", "pull_requests", "issues")
+# `read` requests every permission the installation grants, each at `read`, except these: they have
+# no `read` level, so GitHub would refuse the request (plan 0004, D2). A missing entry fails loudly
+# (a 422 with an `--exclude` hint); it never widens a token.
+_NO_READ_LEVEL = frozenset({"workflows"})
+# Permission names as the helper validates them (signer Narrowing.swift, Validate.permission).
+_PERM_NAME_RE = re.compile(r"^[a-z][a-z_]{0,63}$")
 # Permission levels, for checking that a response grants no more than was asked: a key that was not
 # requested (-1) or a level GitHub has not documented (99) both count as exceeding.
 _LEVEL = {"read": 0, "write": 1, "admin": 2}
@@ -50,11 +55,36 @@ def parse_repo(value: str) -> tuple[str, str]:
     return owner, name
 
 
-def permission_body(kind: str, granted: dict[str, str]) -> dict[str, str]:
+def parse_perm_list(value: str) -> frozenset[str]:
+    """`--only` / `--exclude` value: comma-separated permission names."""
+    names = [n.strip() for n in value.split(",")]
+    if not names or any(not _PERM_NAME_RE.fullmatch(n) for n in names):
+        raise ValueError(f"invalid permission list {value!r}: expected name[,name...]")
+    return frozenset(names)
+
+
+def permission_body(
+    kind: str,
+    granted: dict[str, str],
+    *,
+    only: frozenset[str] | None = None,
+    exclude: frozenset[str] = frozenset(),
+) -> dict[str, str]:
     """The requested permissions, always a subset of `granted`.
     Raises ValueError when the class cannot be satisfied."""
+    if (only is not None or exclude) and kind != "read":
+        raise ValueError("--only and --exclude apply to --permissions read only")
+    if only is not None and exclude:
+        raise ValueError("--only and --exclude cannot be combined")
     if kind == "read":
-        body = {k: "read" for k in _READ_SET if k in granted}
+        if only is not None and (missing := sorted(only - granted.keys())):
+            raise ValueError(
+                "--only names permissions the installation does not grant: " + ", ".join(missing)
+            )
+        body = {
+            k: "read" for k in granted
+            if k not in _NO_READ_LEVEL and k not in exclude and (only is None or k in only)
+        }
     elif kind == "contents-write":
         if granted.get("contents") not in ("write", "admin"):
             raise ValueError("contents:write is not granted to the installation")
@@ -68,6 +98,24 @@ def permission_body(kind: str, granted: dict[str, str]) -> dict[str, str]:
     return body
 
 
+_HINT_422 = "a granted permission may have no read level; retry with --exclude <permission>"
+
+
+def _is_422(e: Exception) -> bool:
+    if isinstance(e, signer.GitHubError):
+        return e.status == 422
+    return "HTTP 422" in str(e)
+
+
+def _flags(args: argparse.Namespace) -> tuple[frozenset[str] | None, frozenset[str]]:
+    only = getattr(args, "only", None)
+    exclude = getattr(args, "exclude", None)
+    return (
+        parse_perm_list(only) if only is not None else None,
+        parse_perm_list(exclude) if exclude is not None else frozenset(),
+    )
+
+
 def run(args: argparse.Namespace) -> int:
     if sys.stdout.isatty():
         return _refuse_tty()
@@ -76,6 +124,9 @@ def run(args: argparse.Namespace) -> int:
     try:
         slug = validate_slug(args.app)
         owner, repo = parse_repo(args.repo)
+        only, exclude = _flags(args)
+        if (only is not None or exclude) and args.permissions != "read":
+            raise ValueError("--only and --exclude apply to --permissions read only")
     except ValueError as e:
         return _err(str(e))
 
@@ -95,11 +146,18 @@ def run(args: argparse.Namespace) -> int:
                 f"{login!r}; refusing"
             )
         try:
-            body = permission_body(args.permissions, granted)
+            body = permission_body(args.permissions, granted, only=only, exclude=exclude)
         except ValueError as e:
             return _err(str(e))
 
-        minted = keystore.mint_scoped(cfg, repo, body)
+        try:
+            minted = keystore.mint_scoped(cfg, repo, body)
+        except (github.GitHubError, signer.GitHubError) as e:
+            # 422: GitHub refused a permission level. Under `read` the likely cause is a granted
+            # permission with no read level (_NO_READ_LEVEL is missing it). Exit code stays 1.
+            if args.permissions == "read" and _is_422(e):
+                return _err(github.redact(f"{e} ({_HINT_422})", extra=(token,)))
+            raise
         token = minted.token
         names = list(minted.repositories)
         if not isinstance(token, str) or not token:

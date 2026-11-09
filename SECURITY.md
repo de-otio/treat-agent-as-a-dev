@@ -105,6 +105,14 @@ Limits that remain with the helper:
   any local process without a prompt, and reveal installation accounts
   and permissions.
 
+**`taaad mint --permissions read` is as wide as the installation, at
+read.** Since v0.7.0 the `read` class requests every permission the
+installation grants, each at `read`, including org-level permissions.
+Some reads are sensitive: `secret_scanning_alerts` returns the leaked
+secret values, `actions` returns workflow logs. The boundary is what a
+person grants on the installation. Callers that want less pass
+`--only`.
+
 The threat model assumes the user's account is trusted. If that
 assumption fails, the PEM is recoverable by any process the
 attacker controls under the same user.
