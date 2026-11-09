@@ -94,7 +94,9 @@ soon as it is accepted, with no taaad release. Permissions with no read
 level (`workflows`, `profile`) are left out. Org-level permissions the installation
 grants are included. `--only a,b` requests just those (each must be
 granted, or nothing is minted); `--exclude a,b` leaves them out. If
-GitHub refuses a level with HTTP 422, the error suggests `--exclude`.
+GitHub answers HTTP 422, the error names the two usual causes: the
+repository is not in the installation's selected repositories, or (under
+`read`) a granted permission has no read level, fixed with `--exclude`.
 
 `--repo` must be `<owner>/<repo>`; the owner must equal the
 installation's account login (case-insensitive) or nothing is minted.
