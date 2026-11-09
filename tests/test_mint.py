@@ -304,19 +304,30 @@ def test_derived_body_still_refuses_widened_response(world, capsys):
     assert rc == 1 and capsys.readouterr().out == ""
 
 
-def test_422_under_read_hints_exclude(world, capsys):
+def test_422_under_read_names_both_causes(world, capsys):
     world.post_resp = _Resp(422, text='{"message":"Invalid permission level"}')
     rc = mint_mod.run(_args())
     out = capsys.readouterr()
     assert rc == 1 and out.out == "" and TOKEN not in out.err
-    assert "--exclude" in out.err
+    assert "--exclude" in out.err and "selected repositories" in out.err
+    assert out.err.splitlines()[-1] == "taaad: error=github status=422"
 
 
-def test_422_under_write_has_no_hint(world, capsys):
+@pytest.mark.parametrize("kind", ["write", "contents-write"])
+def test_422_under_other_classes_names_repo_cause_only(world, capsys, kind):
     world.post_resp = _Resp(422, text='{"message":"x"}')
-    rc = mint_mod.run(_args(permissions="write"))
+    rc = mint_mod.run(_args(permissions=kind))
     out = capsys.readouterr()
-    assert rc == 1 and "--exclude" not in out.err
+    assert rc == 1 and out.out == ""
+    assert "--exclude" not in out.err and "selected repositories" in out.err
+    assert out.err.splitlines()[-1] == "taaad: error=github status=422"
+
+
+def test_non_422_error_has_no_hint(world, capsys):
+    world.post_resp = _Resp(403, text='{"message":"x"}')
+    rc = mint_mod.run(_args())
+    out = capsys.readouterr()
+    assert rc == 1 and "selected repositories" not in out.err and "--exclude" not in out.err
 
 
 _names = st.from_regex(r"[a-z][a-z_]{0,20}", fullmatch=True)

@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.7.1
+
+- **A 422 from `taaad mint` now names both usual causes.** GitHub answers
+  HTTP 422 when the repository is not in the installation's selected
+  repositories, as well as when it refuses a permission level. v0.7.0's
+  hint only suggested `--exclude`, which sent people the wrong way in the
+  first case. Under `read` the hint now names both; under `write` and
+  `contents-write`, which used to give no hint, it names the repository
+  cause. Exit codes and the final `taaad: error=github status=422` line
+  are unchanged.
+
 ## v0.7.0
 
 - **`taaad mint --permissions read` follows the installation.** It now

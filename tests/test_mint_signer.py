@@ -167,11 +167,21 @@ def test_derived_read_reaches_helper(world, capsys):
                      "pull_requests=read", "security_events=read"]
 
 
-def test_helper_422_under_read_hints_exclude(world, capsys):
+def test_helper_422_under_read_names_both_causes(world, capsys):
     world.set("mint", exit=6, stderr={"error": "github", "message": "Invalid permission", "status": 422})
     rc = mint_mod.run(args())
     out = capsys.readouterr()
     assert rc == 1 and out.out == "" and "--exclude" in out.err
+    assert "selected repositories" in out.err
+
+
+def test_helper_422_under_contents_write_names_repo_cause(world, capsys):
+    world.set("mint", exit=6, stderr={"error": "github", "message": "x", "status": 422})
+    rc = mint_mod.run(args(kind="contents-write"))
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == "" and "--exclude" not in out.err
+    assert "selected repositories" in out.err
+    assert out.err.splitlines()[-1] == "taaad: error=github status=422"
 
 
 @pytest.mark.parametrize("exit_,stderr,rc,want", [

@@ -19,8 +19,8 @@ _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}
 # `read` requests every permission the installation grants, each at `read`, except these: they have
 # no `read` level. Source: the `app-permissions` schema in GitHub's REST OpenAPI description
 # (github/rest-api-description, checked 2026-11-09), where these two are the only keys whose enum
-# lacks "read". A permission GitHub adds later without a read level fails loudly (a 422 with an
-# `--exclude` hint); it never widens a token.
+# lacks "read". A permission GitHub adds later without a read level fails loudly (a 422 whose hint
+# names `--exclude`); it never widens a token.
 _NO_READ_LEVEL = frozenset({"workflows", "profile"})
 # Permission names as the helper validates them (signer Narrowing.swift, Validate.permission).
 _PERM_NAME_RE = re.compile(r"^[a-z][a-z_]{0,63}$")
@@ -124,7 +124,15 @@ def permission_body(
     return body
 
 
-_HINT_422 = "a granted permission may have no read level; retry with --exclude <permission>"
+# GitHub answers 422 both for a repository outside the installation's selected repositories and
+# for a permission level it refuses, and the body does not reliably say which.
+_HINT_422_REPO = "the repository may not be in the installation's selected repositories"
+_HINT_422_READ = (f"{_HINT_422_REPO}, or a granted permission may have no read level "
+                  "(retry with --exclude <permission>)")
+
+
+def _hint_422(kind: str) -> str:
+    return _HINT_422_READ if kind == "read" else _HINT_422_REPO
 
 
 def _is_422(e: Exception) -> bool:
@@ -180,10 +188,10 @@ def run(args: argparse.Namespace) -> int:
         try:
             minted = keystore.mint_scoped(cfg, repo, body)
         except (github.GitHubError, signer.GitHubError) as e:
-            # 422: GitHub refused a permission level. Under `read` the likely cause is a granted
-            # permission with no read level (_NO_READ_LEVEL is missing it). Exit code stays 1.
-            if args.permissions == "read" and _is_422(e):
-                return _err(github.redact(f"{e} ({_HINT_422})", extra=(token,)),
+            # 422: the repository is not in the installation, or (under `read`) a granted
+            # permission has no read level (_NO_READ_LEVEL is missing it). Exit code stays 1.
+            if _is_422(e):
+                return _err(github.redact(f"{e} ({_hint_422(args.permissions)})", extra=(token,)),
                             fail=FAIL_GITHUB, http=e.status)
             raise
         token = minted.token

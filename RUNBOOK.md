@@ -605,6 +605,7 @@ github.com App leaves orphan installs no one can rotate.
 | `token-leak env vars set: GIT_TRACE`                        | leftover debug env                 | `unset GIT_TRACE GIT_TRACE_CURL GIT_CURL_VERBOSE` |
 | `PEM missing at keychain key …`                             | rotation half-done, or new machine | re-run `taaad rotate` or `taaad register` |
 | `core.hooksPath set in multiple sources`                    | husky / pre-commit + taaad collide | `taaad hooks uninstall`; pick one tool |
+| `taaad mint`: `taaad: error=github status=422`              | repo not in the installation's selected repositories (most often); under `read`, a granted permission with no read level | add the repo on the App's installation page (🛑 human); or `--exclude <permission>` |
 | `installation token mints successfully`                     | end-to-end OK                      | (none)                       |
 
 # Fallbacks
