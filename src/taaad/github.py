@@ -105,7 +105,12 @@ def get_app_meta(app_id: int, pem: str) -> dict:
 
 class GitHubError(RuntimeError):
     """An HTTP failure with a message that is safe to print: status
-    code plus a redacted, truncated body. Never carries a token."""
+    code plus a redacted, truncated body. Never carries a token.
+    `status` is the HTTP status, 0 when there was no response."""
+
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 _SECRET_PATTERNS = [
@@ -137,7 +142,8 @@ def _fail(what: str, r) -> GitHubError:
         body = str(r.text)
     except Exception:  # noqa: BLE001
         body = ""
-    return GitHubError(f"{what}: HTTP {r.status_code} {redact(body)}".rstrip())
+    code = r.status_code if isinstance(r.status_code, int) else 0
+    return GitHubError(f"{what}: HTTP {r.status_code} {redact(body)}".rstrip(), code)
 
 
 def get_installation(jwt_token: str, install_id: int) -> dict:

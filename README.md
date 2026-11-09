@@ -108,7 +108,18 @@ the token only ever goes to a pipe. Exit codes, with stdout empty on
 every non-zero exit: `0` token printed; `2` refused because stdout is a
 TTY; `3` rate-limited by `taaad-signer`; `4` presence prompt cancelled
 or denied; `1` anything else. Errors go to stderr, are passed
-through a credential redactor, and never contain the token. Config is
+through a credential redactor, and never contain the token.
+
+Every non-zero exit ends stderr with one fixed line,
+`taaad: error=<code>` or `taaad: error=<code> status=<http>`, for
+callers that must not show free text. It carries no names, IDs or
+messages. Codes from `taaad-signer`, verbatim: `missing` (helper not
+installed or its path unsafe), `protocol`, `not-found`,
+`presence-denied`, `rate-limited`, `github`, `widened`, `keychain`,
+`exists`, `bad-key`, `app-mismatch`, `internal`. Codes from `mint`
+itself: `tty`, `usage`, `config`, `owner-mismatch`, `not-granted`,
+`bad-response`, `widened`, `github`, `internal`. New codes may be
+added; treat an unknown one like `internal`. Config is
 located the same way as every other command: `TAAAD_CONFIG_DIR`, else
 the platform config dir (`XDG_CONFIG_HOME` on Linux), so a caller that
 must not be steerable should spawn it with a minimal environment.

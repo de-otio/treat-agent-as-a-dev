@@ -17,6 +17,10 @@
   `--only metadata,contents,pull_requests,issues`.
 - An HTTP 422 from GitHub under `read` now suggests `--exclude`. Exit
   codes are unchanged.
+- **`taaad mint` ends every failure with one fixed stderr line,**
+  `taaad: error=<code>[ status=<http>]`, so a caller such as repo-aegis
+  can name the failed step without showing taaad's free text. The
+  helper's error codes pass through verbatim; the list is in the README.
 - **Needs repo-aegis ≥ 0.13.0.** Older repo-aegis refuses these tokens as
   wider than the requested scope.
 

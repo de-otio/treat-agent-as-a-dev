@@ -172,3 +172,18 @@ def test_helper_422_under_read_hints_exclude(world, capsys):
     rc = mint_mod.run(args())
     out = capsys.readouterr()
     assert rc == 1 and out.out == "" and "--exclude" in out.err
+
+
+@pytest.mark.parametrize("exit_,stderr,rc,want", [
+    (4, {"error": "presence-denied", "message": "m"}, 4, "taaad: error=presence-denied"),
+    (5, {"error": "rate-limited", "message": "m", "retry_after": 60}, 3,
+     "taaad: error=rate-limited"),
+    (8, {"error": "keychain", "message": "m"}, 1, "taaad: error=keychain"),
+    (6, {"error": "github", "message": "m", "status": 404}, 1, "taaad: error=github status=404"),
+    (6, {"error": "github", "message": "m"}, 1, "taaad: error=github"),
+])
+def test_helper_failure_code_passes_through(world, capsys, exit_, stderr, rc, want):
+    world.set("mint", exit=exit_, stderr=stderr)
+    assert mint_mod.run(args()) == rc
+    err = capsys.readouterr().err
+    assert [ln for ln in err.splitlines() if ln.strip()][-1] == want

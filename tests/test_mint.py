@@ -340,3 +340,59 @@ def test_read_body_properties(granted, data):
         return
     assert set(body.values()) == {"read"}
     assert set(body) == expected  # equality: a fixed key list would fail this
+
+
+# --- the fixed failure line (`taaad: error=<code>[ status=<n>]`) --------------------------------
+
+def _last_err_line(err: str) -> str:
+    return [ln for ln in err.splitlines() if ln.strip()][-1]
+
+
+@pytest.mark.parametrize("code,http,want", [
+    ("github", 422, "taaad: error=github status=422"),
+    ("github", 0, "taaad: error=github"),
+    ("keychain", 99, "taaad: error=keychain"),           # not an HTTP status
+    ("Bad Code", 0, "taaad: error=internal"),             # outside the shape
+    ("x\ntaaad: error=ok", 0, "taaad: error=internal"),  # no line injection
+    (None, 0, "taaad: error=internal"),
+])
+def test_failure_line_shape(code, http, want):
+    assert mint_mod.failure_line(code, http) == want
+
+
+@given(st.text(), st.integers())
+def test_failure_line_is_one_fixed_line(code, http):
+    line = mint_mod.failure_line(code, http)
+    assert "\n" not in line
+    assert line.startswith("taaad: error=")
+    assert line.split()[1] in (f"error={code}", "error=internal")
+
+
+@pytest.mark.parametrize("setup,kw,want", [
+    (lambda w: None, {"repo": "other-org/widgets"}, "taaad: error=owner-mismatch"),
+    (lambda w: None, {"repo": "bad repo"}, "taaad: error=usage"),
+    (lambda w: setattr(w, "granted", {"metadata": "read"}), {"permissions": "contents-write"},
+     "taaad: error=not-granted"),
+    (lambda w: setattr(w, "minted_repos", ["widgets", "secrets"]), {}, "taaad: error=widened"),
+    (lambda w: setattr(w, "post_resp", _Resp(500, text="boom")), {},
+     "taaad: error=github status=500"),
+    (lambda w: setattr(w, "post_resp", _Resp(422, text="x")), {},
+     "taaad: error=github status=422"),
+])
+def test_every_failure_ends_with_the_fixed_line(world, capsys, setup, kw, want):
+    setup(world)
+    rc = mint_mod.run(_args(**kw))
+    out = capsys.readouterr()
+    assert rc == 1 and out.out == ""
+    assert _last_err_line(out.err) == want
+
+
+def test_tty_refusal_ends_with_the_fixed_line(world, monkeypatch, capsys):
+    monkeypatch.setattr(sys, "stdout", _FakeTTY())
+    assert mint_mod.run(_args()) == 2
+    assert _last_err_line(capsys.readouterr().err) == "taaad: error=tty"
+
+
+def test_success_prints_no_failure_line(world, capsys):
+    assert mint_mod.run(_args()) == 0
+    assert "taaad: error=" not in capsys.readouterr().err
