@@ -91,7 +91,7 @@ the installation was granted:
 `read` follows the installation: a permission a person grants on the
 installation (code scanning, Actions, checks, …) is usable at `read` as
 soon as it is accepted, with no taaad release. Permissions with no read
-level (`workflows`) are left out. Org-level permissions the installation
+level (`workflows`, `profile`) are left out. Org-level permissions the installation
 grants are included. `--only a,b` requests just those (each must be
 granted, or nothing is minted); `--exclude a,b` leaves them out. If
 GitHub refuses a level with HTTP 422, the error suggests `--exclude`.

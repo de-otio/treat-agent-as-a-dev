@@ -7,7 +7,7 @@
   instead of the fixed `metadata`, `contents`, `pull_requests`, `issues`.
   A permission added to the App (code scanning, Actions, checks, …) works
   as soon as a person accepts it on the installation, with no taaad
-  release. Permissions with no read level (`workflows`) are left out.
+  release. Permissions with no read level (`workflows`, `profile`) are left out.
 - **Tokens can be wider than in v0.6.0, but only at `read`.** On an
   installation that grants more than the four keys, a `read` token now
   carries those too, org-level permissions included. See SECURITY.md for

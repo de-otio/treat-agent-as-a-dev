@@ -17,9 +17,11 @@ from taaad.slug import validate as validate_slug
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$")
 # `read` requests every permission the installation grants, each at `read`, except these: they have
-# no `read` level, so GitHub would refuse the request (plan 0004, D2). A missing entry fails loudly
-# (a 422 with an `--exclude` hint); it never widens a token.
-_NO_READ_LEVEL = frozenset({"workflows"})
+# no `read` level. Source: the `app-permissions` schema in GitHub's REST OpenAPI description
+# (github/rest-api-description, checked 2026-11-09), where these two are the only keys whose enum
+# lacks "read". A permission GitHub adds later without a read level fails loudly (a 422 with an
+# `--exclude` hint); it never widens a token.
+_NO_READ_LEVEL = frozenset({"workflows", "profile"})
 # Permission names as the helper validates them (signer Narrowing.swift, Validate.permission).
 _PERM_NAME_RE = re.compile(r"^[a-z][a-z_]{0,63}$")
 # Permission levels, for checking that a response grants no more than was asked: a key that was not

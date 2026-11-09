@@ -244,7 +244,8 @@ def test_invalid_slug_refused(world, slug, capsys):
 
 from hypothesis import given, strategies as st  # noqa: E402
 
-WIDE = {**GRANTED, "security_events": "read", "actions": "write", "checks": "admin"}
+WIDE = {**GRANTED, "security_events": "read", "actions": "write", "checks": "admin",
+        "profile": "write"}
 
 
 def test_read_derives_every_granted_permission_at_read(world, capsys):
@@ -319,7 +320,7 @@ def test_422_under_write_has_no_hint(world, capsys):
 
 
 _names = st.from_regex(r"[a-z][a-z_]{0,20}", fullmatch=True)
-_granted = st.dictionaries(_names | st.just("workflows"), st.sampled_from(["read", "write", "admin"]),
+_granted = st.dictionaries(_names | st.sampled_from(["workflows", "profile"]), st.sampled_from(["read", "write", "admin"]),
                            min_size=1, max_size=12)
 
 
