@@ -74,6 +74,7 @@ per-engagement.
 ```sh
 taaad mint --app example-bot --repo example-org/widgets \
            --permissions <read|write|contents-write> --json | consumer
+           [--only PERM,... | --exclude PERM,...]   # read class only
 ```
 
 All four options are required (`--json` is the only output format and
@@ -83,9 +84,17 @@ the installation was granted:
 
 | `--permissions`  | Token permissions                                                   |
 |------------------|---------------------------------------------------------------------|
-| `read`           | `metadata`, `contents`, `pull_requests`, `issues` (those granted) as `read` |
+| `read`           | every permission the installation grants, each at `read` (see below) |
 | `contents-write` | `contents: write`, `metadata: read` (refused if not granted)        |
 | `write`          | the installation's granted permissions, unchanged                   |
+
+`read` follows the installation: a permission a person grants on the
+installation (code scanning, Actions, checks, …) is usable at `read` as
+soon as it is accepted, with no taaad release. Permissions with no read
+level (`workflows`, `profile`) are left out. Org-level permissions the installation
+grants are included. `--only a,b` requests just those (each must be
+granted, or nothing is minted); `--exclude a,b` leaves them out. If
+GitHub refuses a level with HTTP 422, the error suggests `--exclude`.
 
 `--repo` must be `<owner>/<repo>`; the owner must equal the
 installation's account login (case-insensitive) or nothing is minted.
@@ -99,7 +108,18 @@ the token only ever goes to a pipe. Exit codes, with stdout empty on
 every non-zero exit: `0` token printed; `2` refused because stdout is a
 TTY; `3` rate-limited by `taaad-signer`; `4` presence prompt cancelled
 or denied; `1` anything else. Errors go to stderr, are passed
-through a credential redactor, and never contain the token. Config is
+through a credential redactor, and never contain the token.
+
+Every non-zero exit ends stderr with one fixed line,
+`taaad: error=<code>` or `taaad: error=<code> status=<http>`, for
+callers that must not show free text. It carries no names, IDs or
+messages. Codes from `taaad-signer`, verbatim: `missing` (helper not
+installed or its path unsafe), `protocol`, `not-found`,
+`presence-denied`, `rate-limited`, `github`, `widened`, `keychain`,
+`exists`, `bad-key`, `app-mismatch`, `internal`. Codes from `mint`
+itself: `tty`, `usage`, `config`, `owner-mismatch`, `not-granted`,
+`bad-response`, `widened`, `github`, `internal`. New codes may be
+added; treat an unknown one like `internal`. Config is
 located the same way as every other command: `TAAAD_CONFIG_DIR`, else
 the platform config dir (`XDG_CONFIG_HOME` on Linux), so a caller that
 must not be steerable should spawn it with a minimal environment.

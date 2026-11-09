@@ -77,6 +77,11 @@ def _add_mint(sub: argparse._SubParsersAction) -> None:
     p.add_argument("--repo", required=True, help="<owner>/<repo>")
     p.add_argument("--permissions", required=True,
                    choices=["read", "write", "contents-write"])
+    narrow = p.add_mutually_exclusive_group()
+    narrow.add_argument("--only", metavar="PERM[,PERM...]",
+                        help="with --permissions read: request only these (each must be granted)")
+    narrow.add_argument("--exclude", metavar="PERM[,PERM...]",
+                        help="with --permissions read: leave these out")
     p.add_argument("--json", action="store_true", required=True,
                    help="emit a JSON object (the only format; must be given)")
 
